@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.eclipse/
+bin/
+.settings/
+.classpath
+.project
+
+# 运行时
+run/
+run-data/
+logs/
+crash-reports/
+
+# 构建/调试产物
+build.log
+build_out.txt
+compile.log
+*.log
+*.tmp
+
+# 系统
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 本地依赖（如需提交请手动 git add -f）
+libs/*.jar

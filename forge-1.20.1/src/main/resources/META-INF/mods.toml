@@ -1,0 +1,64 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL=""
+
+[[mods]]
+modId="jeiguess"
+version="${mod_version}"
+displayName="JEI Guess"
+authors="Maixr"
+description='''
+猜你想搜 —— 点击 JEI 搜索框，像浏览器地址栏一样弹出候选列表。
+
+候选来源：收藏 / 最近搜索 / 任务需求 / 常搜 / 上次点开的物品 / 聊天提及 / 服务端热词 / 推荐词
+（配额与顺序均可在配置文件里调整）
+
+特性：
+  · 中文 mod 名自动翻译成 @modid、标签名翻译成 #tag —— 直接搜中文名 JEI 是搜不到东西的
+  · 映射表直接读创造模式标签页推导，任何整合包、任何语言都通用
+  · 聊天里的物品名/id/标签/模组名加下划线：点击查合成表，Shift+点击查用途表，Ctrl+点击复制 id
+  · 右键收藏、中键屏蔽、悬停即选中；灰色补全、拼写纠错、@ 与 # 语法提示
+  · 记录"搜完这个词之后你点开了哪个物品"，下次同类搜索直接置顶
+  · 任务候选按"最近查看的任务"排序（读取 FTB 任务书当前打开的任务）
+  · 可选的全服热词（服务端也装本 mod 时生效，客户端不会向原版服务端发任何数据）
+  · 支持拼音输入（需装通用拼音搜索 JEC）
+  · 全局反射容错：JEI / FTB Quests / JEC 缺任何一个都只静默禁用对应功能，不会崩游戏
+
+Click the JEI search box and get a browser-address-bar-like dropdown of
+"recent searches + what you probably want to search next": favourites, recents,
+FTB Quests objectives, most-searched words, the item you picked last time,
+chat mentions, server-wide trending searches and a configurable pool.
+Chinese mod names are rewritten to @modid and tag names to #tag automatically
+(the mapping is derived from creative tabs, so it works in any modpack and any
+language). Item names, IDs, tags and mod names in chat become clickable: click
+for the recipe, Shift+click for uses, Ctrl+click to copy the ID. Star a
+suggestion with right-click, hide it with middle-click, hover to select, Tab to
+accept the inline completion. Pinyin matching supported (with JEC installed).
+Client-side only unless you also install it on the server for the optional
+server-wide trending words. Fully reflection-based: a missing mod or a changed
+JEI internal disables that feature silently instead of crashing the game.
+
+Not affiliated with JEI (Just Enough Items) or its author mezz.
+'''
+
+[[dependencies.jeiguess]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.jeiguess]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.jeiguess]]
+    modId="jei"
+    mandatory=false
+    versionRange="[15,)"
+    ordering="AFTER"
+    side="CLIENT"

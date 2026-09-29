@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.maixr.suggest.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "MixinClientPacketListener"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
