@@ -1,10 +1,10 @@
 {
   "pack": {
     "description": "JEI Guess",
-    "pack_format": 34,
+    "pack_format": 15,
     "supported_formats": [
-      34,
-      48
+      15,
+      18
     ]
   }
 }

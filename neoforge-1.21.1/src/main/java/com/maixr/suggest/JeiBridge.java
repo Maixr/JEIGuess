@@ -35,6 +35,7 @@ public final class JeiBridge {
     private static Method overlayGetUnderMouse;  // IIngredientListOverlay.getIngredientUnderMouse()
     private static Method overlayIsDisplayed;    // IIngredientListOverlay.isListDisplayed()
     private static Method typedGetItemStack;     // ITypedIngredient.getItemStack()
+    private static Method rtGetIngredientManager; // IJeiRuntime.getIngredientManager()（亚空间索引用）
 
     private JeiBridge() {}
 
@@ -79,6 +80,7 @@ public final class JeiBridge {
             overlayHasFocus = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "hasKeyboardFocus");
             overlayGetUnderMouse = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "getIngredientUnderMouse");
             overlayIsDisplayed = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "isListDisplayed");
+            rtGetIngredientManager = method(Class.forName("mezz.jei.api.runtime.IJeiRuntime"), "getIngredientManager");
             try {
                 typedGetItemStack = Class.forName("mezz.jei.api.ingredients.ITypedIngredient")
                         .getMethod("getItemStack");
@@ -218,6 +220,89 @@ public final class JeiBridge {
             return true;
         }
     }
+
+    private static java.lang.reflect.Method managerGetAllItemStacks;
+    private static boolean allItemsResolved = false;
+    private static java.util.Set<String> cachedJeiIds = null;
+    private static long jeiIdsAt = 0L;
+
+    /**
+     * ★ JEI 收录的全部物品 id（形如 minecraft:diamond）。
+     *
+     * 用 IIngredientManager.getAllItemStacks()（JEI 官方 API）。
+     * 亚空间索引拿它做差集：注册表里有、这个集合里没有 = JEI 搜不到的东西。
+     * 拿不到时返回 null（调用方会放弃建立亚空间索引，而不是误判成"JEI 什么都没有"）。
+     */
+    public static java.util.Set<String> jeiItemIds() {
+        long now = System.currentTimeMillis();
+        if (cachedJeiIds != null && now - jeiIdsAt < 300_000L) return cachedJeiIds;
+        Object rt = runtime();
+        if (rt == null) return null;
+        try {
+            if (!allItemsResolved) {
+                allItemsResolved = true;
+                try {
+                    Class<?> mgr = Class.forName("mezz.jei.api.runtime.IIngredientManager");
+                    managerGetAllItemStacks = mgr.getMethod("getAllItemStacks");
+                } catch (Throwable ignored) {}
+            }
+            if (managerGetAllItemStacks == null) return null;
+            Object mgr = rtGetIngredientManager != null ? rtGetIngredientManager.invoke(rt) : null;
+            if (mgr == null) return null;
+            Object listObj = managerGetAllItemStacks.invoke(mgr);
+            if (!(listObj instanceof java.util.Collection<?> col)) return null;
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (Object o : col) {
+                if (o instanceof net.minecraft.world.item.ItemStack st && !st.isEmpty()) {
+                    net.minecraft.resources.ResourceLocation rl =
+                            net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(st.getItem());
+                    if (rl != null) ids.add(rl.toString());
+                }
+            }
+            cachedJeiIds = ids;
+            jeiIdsAt = now;
+            return ids;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static java.lang.reflect.Method managerAddIngredients;
+    private static boolean addResolved = false;
+
+    /**
+     * ★ 按需把一个物品注入 JEI（IIngredientManager.addIngredientsAtRuntime）。
+     * 只在玩家明确要求时调用（/jeiguess inject <id>），平时绝不注入 —— 避免拖慢 JEI 索引。
+     *
+     * @return 是否注入成功
+     */
+    public static boolean injectItem(net.minecraft.world.item.ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        Object rt = runtime();
+        if (rt == null) return false;
+        try {
+            if (!addResolved) {
+                addResolved = true;
+                try {
+                    Class<?> mgr = Class.forName("mezz.jei.api.runtime.IIngredientManager");
+                    Class<?> type = Class.forName("mezz.jei.api.ingredients.IIngredientType");
+                    Class<?> vanilla = Class.forName("mezz.jei.api.constants.VanillaTypes");
+                    managerAddIngredients = mgr.getMethod("addIngredientsAtRuntime", type, java.util.Collection.class);
+                    vanillaType = vanilla.getField("ITEM_STACK").get(null);
+                } catch (Throwable ignored) {}
+            }
+            if (managerAddIngredients == null || vanillaType == null) return false;
+            Object mgr = rtGetIngredientManager != null ? rtGetIngredientManager.invoke(rt) : null;
+            if (mgr == null) return false;
+            managerAddIngredients.invoke(mgr, vanillaType, java.util.List.of(stack));
+            return true;
+        } catch (Throwable t) {
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 注入 JEI 失败: {}", t.toString());
+            return false;
+        }
+    }
+
+    private static Object vanillaType = null;
 
     /**
      * ★ 鼠标下正在悬停的 JEI 物品（用于记录「搜完这个词之后你点开了哪个物品」）。

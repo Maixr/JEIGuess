@@ -38,3 +38,7 @@ desktop.ini
 
 # æœ¬åœ°ä¾èµ–ï¼ˆå¦‚éœ€æäº¤è¯·æ‰‹åŠ¨ git add -fï¼‰
 libs/*.jar
+
+# NeoForge 1.21.1 µÄ±¾µØ maven ¾µÏñ£¨474MB£¬±¾»ú×¨ÓÃ£©
+neoforge-1.21.1/_maven/
+compile_run.cmd

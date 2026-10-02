@@ -38,6 +38,8 @@ import java.util.Optional;
 @EventBusSubscriber(modid = MaixrSuggestMod.MODID, value = Dist.CLIENT)
 public final class ChatHighlighter {
     private static final String CMD = "jeiguess";
+    /** 给 ChatRightClick 解析链接用（同 CMD） */
+    public static final String CMD_PUBLIC = CMD;
     private static final TextColor LINK_COLOR = TextColor.fromRgb(0x66CCFF);
 
     private ChatHighlighter() {}
@@ -213,9 +215,37 @@ public final class ChatHighlighter {
                     msg("\u00a7bJEI Guess \u00a77搜索记录 " + s.allWords().size()
                             + " 条 · 收藏 " + s.allFavorites().size()
                             + " 个 · 屏蔽 " + s.allBanned().size()
-                            + " 个 · 任务记录 " + s.questViews().size() + " 条");
+                            + " 个 · 任务记录 " + s.questViews().size() + " 条"
+                            + (s.isPrivateMode() ? " \u00a7c[无痕模式开]" : ""));
                     return 1;
-                })));
+                }))
+                // ★ 清空历史（保留收藏/屏蔽 —— 那是资产，不是历史）
+                .then(Commands.literal("wipe").executes(ctx -> {
+                    int n = SearchHistoryStore.get().wipeHistory();
+                    msg("\u00a77已清空 " + n + " 条搜索历史（收藏与屏蔽保留）");
+                    return 1;
+                }))
+                // ★ 无痕模式：整合包作者调试时用，开着不记任何历史
+                .then(Commands.literal("private").executes(ctx -> {
+                    SearchHistoryStore s = SearchHistoryStore.get();
+                    s.setPrivateMode(!s.isPrivateMode());
+                    msg(s.isPrivateMode()
+                            ? "\u00a7c无痕模式已开启\u00a77 —— 本次不再记录任何搜索历史"
+                            : "\u00a7a无痕模式已关闭\u00a77 —— 恢复记录");
+                    return 1;
+                }))
+                // ★ 按需把亚空间物品注入 JEI（平时不注入，避免拖慢 JEI）
+                .then(Commands.literal("inject")
+                        .then(Commands.argument("id", StringArgumentType.string()).executes(ctx -> {
+                            String raw = StringArgumentType.getString(ctx, "id");
+                            ResourceLocation rl = ResourceLocation.tryParse(raw);
+                            Item item = rl == null ? null : BuiltInRegistries.ITEM.get(rl);
+                            if (item == null) { msg("\u00a7c找不到物品：" + raw); return 0; }
+                            boolean ok = JeiBridge.injectItem(new ItemStack(item));
+                            msg(ok ? "\u00a7a已注入 JEI：\u00a7f" + raw + " \u00a77（现在能在 JEI 里搜到它了）"
+                                   : "\u00a7c注入失败（JEI 未就绪或该物品类型不支持）");
+                            return ok ? 1 : 0;
+                        }))));
     }
 
     private static void tryHandleShow(String raw) {

@@ -33,6 +33,7 @@ public final class ClientTicker {
     public static void onClientTick(ClientTickEvent.Post event) {
         if (!ItemNameIndex.isBuilt()) ItemNameIndex.buildIncrementally();
         else if (!ItemLinkIndex.isBuilt()) ItemLinkIndex.buildIncrementally();
+        else if (!VoidIndex.isBuilt()) VoidIndex.buildIncrementally();   // ★ 亚空间索引分帧建
         SearchHistoryStore.get().flushIfDirty();
         QuestWatch.tick();
         tickHotWords();
@@ -68,6 +69,8 @@ public final class ClientTicker {
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
             if (id == null) return;
             SearchHistoryStore.get().recordPick(q, id.toString(), stack.getHoverName().getString());
+            // ★ 玩家点了 JEI 列表物品 = 这次搜索"用上了" → 记进历史（紫色「搜过」回放的数据源）
+            SearchHistoryStore.get().recordSearch(q.trim());
             SearchHistoryStore.get().saveLater();
         } catch (Throwable ignored) {}
     }

@@ -11,27 +11,28 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /**
  * 拦截"发往服务器的命令"。
  *
- * ★ 1.20.1（Forge）必须写 SRG 名（m_246623_ 之类），
- *   1.21.1（NeoForge）运行时就是官方名，直接写 sendCommand / sendUnsignedCommand / sendChat。
+ * ★ 必须用 SRG 名（m_xxxxx_）：生产环境的 Mixin 按 SRG 名匹配，写 official 名会直接崩溃
+ *   （InvalidInjectionException: could not find any targets matching 'sendCommand'）。
  *
- * 1.21.1 有三条发送路径，都要拦：
- *   sendCommand         (String)V  ← 聊天栏输入的命令
- *   sendUnsignedCommand (String)Z  ← ClickEvent 的 RUN_COMMAND 实际走这个
- *   sendChat            (String)V  ← 普通聊天文本（顺带拦，防止别的路径漏网）
+ * ★ 1.20.1 有三个发送路径，都要拦：
+ *     sendCommand         (String)V  → m_246623_
+ *     sendUnsignedCommand (String)Z  → m_246979_   ← ClickEvent 的 RUN_COMMAND 实际走这个
+ *     sendChat            (String)V  → m_246175_   ← 聊天文本（顺带拦，防止别的路径漏网）
  */
 @Mixin(ClientPacketListener.class)
 public class MixinClientPacketListener {
-    @Inject(method = "sendCommand", at = @At("HEAD"), cancellable = true)
+
+    @Inject(method = "m_246623_", at = @At("HEAD"), cancellable = true)
     private void jeiguess$interceptCommand(String command, CallbackInfo ci) {
         if (ChatHighlighter.tryHandleLinkCommand(command)) ci.cancel();
     }
 
-    @Inject(method = "sendUnsignedCommand", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "m_246979_", at = @At("HEAD"), cancellable = true)
     private void jeiguess$interceptUnsignedCommand(String command, CallbackInfoReturnable<Boolean> cir) {
-        if (ChatHighlighter.tryHandleLinkCommand(command)) cir.setReturnValue(true);
+        if (ChatHighlighter.tryHandleLinkCommand(command)) cir.setReturnValue(Boolean.TRUE);
     }
 
-    @Inject(method = "sendChat", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "m_246175_", at = @At("HEAD"), cancellable = true)
     private void jeiguess$interceptChat(String message, CallbackInfo ci) {
         if (ChatHighlighter.tryHandleLinkCommand(message)) ci.cancel();
     }

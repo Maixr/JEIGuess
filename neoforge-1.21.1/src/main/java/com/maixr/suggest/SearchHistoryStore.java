@@ -38,6 +38,8 @@ public final class SearchHistoryStore {
     private final List<QuestView> questViews = new ArrayList<>();
     /** 服务器热词（收到才填，不落盘） */
     private final List<String> hotWords = new ArrayList<>();
+    /** ★ 无痕模式：开着的时候不记任何历史（整合包作者调试用） */
+    private volatile boolean privateMode = false;
 
     public static SearchHistoryStore get() { return INSTANCE; }
 
@@ -47,6 +49,8 @@ public final class SearchHistoryStore {
         public long lastUsed;
         /** true = 来自聊天提及，不计入"搜索次数" */
         public boolean fromChat;
+        /** ★ 这个词搜出来是空的次数（用于「搜过但搜不到」降权） */
+        public int emptyHits;
         public Entry() {}
         public Entry(String word) { this.word = word; }
     }
@@ -179,7 +183,7 @@ public final class SearchHistoryStore {
 
     /** 记录一次搜索（玩家在 JEI 搜索框里实际搜过的词）。 */
     public synchronized void record(String word) {
-        if (word == null) return;
+        if (privateMode || word == null) return;
         String w = word.trim();
         if (w.isEmpty() || w.length() > 64) return;
         Entry e = entries.computeIfAbsent(w, Entry::new);
@@ -198,7 +202,7 @@ public final class SearchHistoryStore {
      * 同一个词 2 分钟内重复出现只刷新时间、不叠加次数（避免边打字边计数）。
      */
     public synchronized void recordSearch(String word) {
-        if (word == null) return;
+        if (privateMode || word == null) return;
         String w = word.trim();
         if (w.isEmpty() || w.length() > 64) return;
         Entry e = entries.computeIfAbsent(w, Entry::new);
@@ -310,6 +314,38 @@ public final class SearchHistoryStore {
         return e == null ? 0 : e.count;
     }
 
+    /**
+     * ★ 这个词以前搜过吗？（用于紫色「搜过」回放）
+     * 只看"玩家真的提交过的搜索"，不含聊天提及。
+     */
+    public synchronized boolean hasSearched(String word) {
+        if (word == null) return false;
+        Entry e = entries.get(word.trim());
+        return e != null && !e.fromChat && e.count > 0;
+    }
+
+    /** 搜过的词（按最近使用倒序，供紫色回放用）。 */
+    public synchronized List<String> searchedWords(int limit) {
+        List<String> out = new ArrayList<>();
+        for (Entry e : searchedEntries()) { if (out.size() >= limit) break; out.add(e.word); }
+        return out;
+    }
+
+    /** ★ 搜过的词 + 元数据（打分排序用）。返回的是副本，调用方随便排序。 */
+    public synchronized List<Entry> searchedEntries() {
+        List<Entry> list = new ArrayList<>();
+        for (Entry e : entries.values()) {
+            if (e.fromChat || e.count <= 0) continue;
+            Entry c = new Entry(e.word);
+            c.count = e.count;
+            c.lastUsed = e.lastUsed;
+            c.emptyHits = e.emptyHits;
+            list.add(c);
+        }
+        list.sort(Comparator.comparingLong((Entry e) -> e.lastUsed).reversed());
+        return list;
+    }
+
     /** 全部已知词（纠错用）。 */
     public synchronized List<String> allWords() {
         return new ArrayList<>(entries.keySet());
@@ -337,9 +373,15 @@ public final class SearchHistoryStore {
         return now;
     }
 
+    /**
+     * 收藏列表。★ limit <= 0 表示不设上限（中键收藏不占 8 条配额，玩家收藏多少就多少）。
+     */
     public synchronized List<String> favorites(int limit) {
         List<String> out = new ArrayList<>();
-        for (String s : favorites) { if (out.size() >= limit) break; out.add(s); }
+        for (String s : favorites) {
+            if (limit > 0 && out.size() >= limit) break;
+            out.add(s);
+        }
         return out;
     }
 
@@ -361,6 +403,42 @@ public final class SearchHistoryStore {
     }
 
     public synchronized List<String> allBanned() { return new ArrayList<>(banned); }
+
+    /** ★ 清空全部历史（保留收藏与屏蔽 —— 那是玩家的"资产"，不是历史）。 */
+    public synchronized int wipeHistory() {
+        int n = entries.size();
+        entries.clear();
+        chatMentions.clear();
+        picks.clear();
+        saveLater();
+        return n;
+    }
+
+    // ───────────────────────── 无痕模式 / 空结果降权 ─────────────────────────
+
+    public boolean isPrivateMode() { return privateMode; }
+
+    public void setPrivateMode(boolean on) { this.privateMode = on; }
+
+    /**
+     * ★ 记录"这个词搜出来是空的"。
+     * 反复搜不到的词，下次在紫色回放里会被降权 —— 免得它一直占着最上面却点不出东西。
+     */
+    public synchronized void recordEmptyResult(String word) {
+        if (privateMode || word == null) return;
+        String w = word.trim();
+        if (w.isEmpty() || w.length() > 64) return;
+        Entry e = entries.get(w);
+        if (e == null) return;                     // 没搜过的词不单独建条目
+        e.emptyHits++;
+        saveLater();
+    }
+
+    /** 这个词的空结果次数。 */
+    public synchronized int emptyHitsOf(String word) {
+        Entry e = word == null ? null : entries.get(word.trim());
+        return e == null ? 0 : e.emptyHits;
+    }
 
     // ───────────────────────── 任务浏览记录 ─────────────────────────
 

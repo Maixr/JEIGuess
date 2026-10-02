@@ -16,6 +16,7 @@ public final class SuggestConfig {
     public static final ModConfigSpec.IntValue RANDOM_COUNT;
     public static final ModConfigSpec.IntValue CHAT_COUNT;
     public static final ModConfigSpec.IntValue FAVORITE_COUNT;
+    public static final ModConfigSpec.BooleanValue VOID_SEARCH;
     public static final ModConfigSpec.IntValue PICK_COUNT;
     public static final ModConfigSpec.IntValue HOT_COUNT;
     public static final ModConfigSpec.IntValue ROWS_PER_PAGE;
@@ -62,7 +63,8 @@ public final class SuggestConfig {
         FREQUENT_COUNT = b.comment("高频搜索：历史上搜得最多的词").defineInRange("frequent", 1, 0, 30);
         CHAT_COUNT = b.comment("聊天提及：聊天里出现过的物品名（0 = 只在「聊天」整页里出现）").defineInRange("chat", 0, 0, 30);
         RANDOM_COUNT = b.comment("推荐词：从下方 recommendWords 里随机抽取").defineInRange("random", 1, 0, 30);
-        FAVORITE_COUNT = b.comment("收藏：右键加星的词（不计入总数上限，始终排最前）").defineInRange("favorite", 2, 0, 30);
+        FAVORITE_COUNT = b.comment("收藏：中键收藏的词（始终排最前，且不占上面 8 条的配额）",
+                        "★ 填 0 = 不限量（推荐）；填 N = 最多保留 N 个收藏").defineInRange("favorite", 0, 0, 30);
         PICK_COUNT = b.comment("上次：上次搜同一个词之后你点开的物品").defineInRange("pick", 1, 0, 30);
         HOT_COUNT = b.comment("热词：服务器热词（需要服务端也安装本 mod）").defineInRange("hot", 2, 0, 30);
         ROWS_PER_PAGE = b.comment("候选面板每页显示多少行（超过就分页）").defineInRange("rowsPerPage", 8, 3, 20);
@@ -101,6 +103,9 @@ public final class SuggestConfig {
         GHOST_TEXT = b.comment("在 JEI 搜索框里显示灰色补全提示，按 Tab 接受").define("ghostText", true);
         CORRECTION = b.comment("搜不到东西时提示「你是不是想搜…」（基于编辑距离的纠错）").define("correction", true);
         SYNTAX_HINTS = b.comment("输入 @ 或 # 时列出 mod / 标签，教玩家用 JEI 的前缀语法").define("syntaxHints", true);
+        VOID_SEARCH = b.comment("★ 亚空间搜索：列出 JEI 收录不到、但游戏里真实存在的物品",
+                        "包括被 JEI 隐藏的（命令方块、屏障、结构空位）和名字是原始翻译键的物品",
+                        "这些条目点击 = 复制物品 ID，不会注入 JEI").define("voidSearch", true);
         HOVER_SELECTS = b.comment("鼠标悬停即选中该条（Enter 确认）").define("hoverSelects", true);
         PAGING_NEEDS_EMPTY_INPUT = b.comment(
                         "★ 按键防冲突：搜索框里有文字时，←/→ 交还给 JEI 移动光标；",

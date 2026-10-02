@@ -1,7 +1,13 @@
 pluginManagement {
     repositories {
+        // 本机 maven.neoforged.net 的 TLS 连接会被重置（curl 返回 000），
+        // 而 Gradle 里网络错误是致命的（不会自动跳到下一个仓库），所以本地镜像必须排第一。
+        maven {
+            name = "LocalMirror"
+            url = new File(settingsDir, "_maven").getCanonicalFile().toURI()
+        }
         gradlePluginPortal()
-        maven { url = 'https://maven.neoforged.net/releases' }
+        maven { url = "https://maven.neoforged.net/releases" }
     }
 }
 

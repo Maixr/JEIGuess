@@ -22,7 +22,7 @@ import java.util.List;
  *   滚轮（或 ←/→、PageUp/PageDown）一路翻下去。
  *
  * 鼠标（不占任何键）：
- *   · 左键 = 搜索；右键 = 收藏；Shift+右键 = 从历史删除；滚轮 = 翻页
+ *   · 左键 = 搜索（亚空间条目 = 复制物品 ID）；中键 = 收藏/取消；右键 = 复制 ID；Shift+右键 = 从历史删除；滚轮 = 翻页
  *   · 悬停某行 = 选中；悬停标题 [?] = 操作说明；点标题 [xx] = 换页（搜索时=切换来源筛选）
  *
  * 键盘（★ 每个键只有一个功能）：
@@ -57,7 +57,8 @@ public final class SuggestOverlay {
 
     private static final String[] HELP = {
             "左键 / Enter   搜索",
-            "右键           收藏（金色置顶）",
+            "中键           收藏 / 取消（金色置顶，不占 8 条）",
+            "右键           复制 ID（模组/标签/物品）",
             "Shift+右键     从历史里删掉",
             "滚轮 / ← →     换页（最近 / 任务 / 常搜…）",
             "PageUp/PageDn  换页",
@@ -263,7 +264,18 @@ public final class SuggestOverlay {
             int badgeW = (s.badge.isEmpty() || (s.badgeOnHover && !sel)) ? 0 : font.width(s.badge) + 4;
             String name = fit(font, s.display, nameRight - textX - badgeW);
             int textColor = sel ? 0xFFFFFFFF : s.source.color;
-            g.drawString(font, name, textX, y + 2, textColor, false);
+            // ★ 命中高亮：紫色「搜过」把玩家输入的那段画成亮色（像浏览器补全高亮）
+            if (s.hlStart >= 0 && s.hlEnd > s.hlStart && s.hlEnd <= name.length()) {
+                String pre = name.substring(0, s.hlStart);
+                String hit = name.substring(s.hlStart, s.hlEnd);
+                String post = name.substring(s.hlEnd);
+                g.drawString(font, pre, textX, y + 2, textColor, false);
+                int hx = textX + font.width(pre);
+                g.drawString(font, hit, hx, y + 2, sel ? 0xFFFFFFAA : 0xFFFFFF55, false);
+                g.drawString(font, post, hx + font.width(hit), y + 2, textColor, false);
+            } else {
+                g.drawString(font, name, textX, y + 2, textColor, false);
+            }
             if (badgeW > 0) {
                 g.drawString(font, s.badge, nameRight - font.width(s.badge), y + 2, HINT, false);
             }
@@ -317,6 +329,11 @@ public final class SuggestOverlay {
     }
 
     private static void apply(Suggestion s) {
+        // ★ 亚空间条目：JEI 里根本没有，填进搜索框也没用 —— 直接复制物品 ID
+        if (s.source == Suggestion.Source.VOID) {
+            copyToClipboard(s.query, "物品 ID");
+            return;
+        }
         String q = SuggestionEngine.fixQueryGlobally(s.query);
         if (JeiBridge.applySearch(q)) {
             SearchHistoryStore.get().record(q);
@@ -325,6 +342,37 @@ public final class SuggestOverlay {
             completion = "";
             hovered = -1;
             page = 0;
+        }
+    }
+
+    /** 复制到剪贴板 + 给玩家一行提示。 */
+    private static void copyToClipboard(String text, String what) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.keyboardHandler != null) mc.keyboardHandler.setClipboard(text);
+            if (mc.player != null) {
+                mc.player.displayClientMessage(
+                        net.minecraft.network.chat.Component.literal(
+                                "\u00a7b[JEI Guess] \u00a77已复制" + what + "：\u00a7f" + text), false);
+            }
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 已复制{}：{}", what, text);
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * ★ 右键 = 复制 ID（用户要求）。
+     * 按来源决定复制什么：
+     *   【模组】→ @modid（JEI 里能直接搜）
+     *   【标签】→ #tag
+     *   【亚空间】→ 物品 id（minecraft:command_block），因为 JEI 搜不到
+     *   其它 → 复制显示文本本身
+     */
+    private static void copyIdOf(Suggestion s) {
+        switch (s.source) {
+            case MOD -> copyToClipboard(s.query.startsWith("@") ? s.query : "@" + s.query, "模组 ID");
+            case TAG -> copyToClipboard(s.query.startsWith("#") ? s.query : "#" + s.query, "标签 ID");
+            case VOID -> copyToClipboard(s.query, "物品 ID");
+            default -> copyToClipboard(s.query, "搜索词");
         }
     }
 
@@ -348,13 +396,18 @@ public final class SuggestOverlay {
         if (event.getButton() == 0) {
             apply(s);
         } else if (event.getButton() == 1) {
+            // ★ 右键 = 复制 ID；Shift+右键 = 从历史删除
             if (Screen.hasShiftDown()) {
                 SearchHistoryStore.get().forget(s.display);
                 MaixrSuggestMod.LOGGER.info("[猜你想搜] 已从历史/聊天池删除：{}", s.display);
             } else {
-                boolean fav = SearchHistoryStore.get().toggleFavorite(s.display);
-                MaixrSuggestMod.LOGGER.info("[猜你想搜] {} {} 收藏", fav ? "已加入" : "已取消", s.display);
+                copyIdOf(s);
             }
+            rebuild(lastInput, true);
+        } else if (event.getButton() == 2) {
+            // ★ 中键 = 收藏 / 取消收藏（收藏不占 8 条配额，永远排最上面）
+            boolean fav = SearchHistoryStore.get().toggleFavorite(s.display);
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] {} {} 收藏", fav ? "已加入" : "已取消", s.display);
             rebuild(lastInput, true);
         } else {
             return;

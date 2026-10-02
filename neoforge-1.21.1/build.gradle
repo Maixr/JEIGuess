@@ -63,6 +63,19 @@ tasks.withType(ProcessResources).configureEach {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    // ★ 移植期错误常在 200~300 条，javac 默认只报 100 条会让人误判"快改完了"
+    options.compilerArgs << "-Xmaxerrs" << "2000"
+    options.compilerArgs << "-Xmaxwarns" << "200"
+}
+
+repositories {
+    // ★ 本地 maven 镜像必须排第一：maven.neoforged.net 在本机不可达
+    maven {
+        name = "LocalMirror"
+        url = new File(projectDir, "_maven").getCanonicalFile().toURI()
+    }
+    mavenCentral()
+    maven { url = "https://maven.blamejared.com" }   // JEI
 }
 
 jar {
