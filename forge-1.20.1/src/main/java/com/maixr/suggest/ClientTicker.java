@@ -31,9 +31,12 @@ public final class ClientTicker {
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
+        // ★ 三个索引**并行**推进，不要用 else if 串行！
+        //   串行的后果：ItemNameIndex 没建完时，后面两个永远不开始 ——
+    //   实测就因此让亚空间索引从未建立过（面板里永远没有【亚空间】条目）。
         if (!ItemNameIndex.isBuilt()) ItemNameIndex.buildIncrementally();
-        else if (!ItemLinkIndex.isBuilt()) ItemLinkIndex.buildIncrementally();
-        else if (!VoidIndex.isBuilt()) VoidIndex.buildIncrementally();   // ★ 亚空间索引也分帧建
+        if (!ItemLinkIndex.isBuilt()) ItemLinkIndex.buildIncrementally();
+        if (!VoidIndex.isBuilt()) VoidIndex.buildIncrementally();   // ★ 亚空间索引也分帧建
         SearchHistoryStore.get().flushIfDirty();
         QuestWatch.tick();
         tickHotWords();

@@ -769,7 +769,23 @@ public final class SuggestionEngine {
             }
         }
 
-        if (out.isEmpty()) return build();                     // 还是没有？退回默认候选，别让面板空掉
+        // ★ 关键修复：索引还在构建时，matchedItems 必然是空的 ——
+        //   这时候如果直接走下面的兜底，面板会显示"混合页"（看起来就像搜了没用）。
+        //   所以先判断索引状态：没建好就明确告诉玩家，而不是假装没匹配。
+        if (out.isEmpty()) {
+            if (!ItemNameIndex.isBuilt()) {
+                // 索引分帧构建中（两万物品约需 2~3 秒）——给一条明确的提示，而不是默默显示混合页
+                List<Suggestion> wait = new ArrayList<>();
+                wait.add(new Suggestion("索引构建中… 请稍候再试", input, Suggestion.Source.PLAIN,
+                        ItemNameIndex.diagnose()));
+                MaixrSuggestMod.LOGGER.info("[猜你想搜] 搜索『{}』时索引尚未就绪：{}", input, ItemNameIndex.diagnose());
+                return wait;
+            }
+            // 索引正常但没有匹配：退回默认候选，别让面板空掉
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 搜索『{}』无匹配，退回默认候选（索引 {}）",
+                    input, ItemNameIndex.diagnose());
+            return build();
+        }
         return finish(out);
     }
 
