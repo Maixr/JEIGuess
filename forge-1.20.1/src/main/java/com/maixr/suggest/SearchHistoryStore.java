@@ -310,6 +310,29 @@ public final class SearchHistoryStore {
         return e == null ? 0 : e.count;
     }
 
+    /**
+     * ★ 这个词以前搜过吗？（用于紫色「搜过」回放）
+     * 只看"玩家真的提交过的搜索"，不含聊天提及。
+     */
+    public synchronized boolean hasSearched(String word) {
+        if (word == null) return false;
+        Entry e = entries.get(word.trim());
+        return e != null && !e.fromChat && e.count > 0;
+    }
+
+    /** 搜过的词（按最近使用倒序，供紫色回放用）。 */
+    public synchronized List<String> searchedWords(int limit) {
+        List<Entry> list = new ArrayList<>();
+        for (Entry e : entries.values()) {
+            if (e.fromChat || e.count <= 0) continue;
+            list.add(e);
+        }
+        list.sort(Comparator.comparingLong((Entry e) -> e.lastUsed).reversed());
+        List<String> out = new ArrayList<>();
+        for (Entry e : list) { if (out.size() >= limit) break; out.add(e.word); }
+        return out;
+    }
+
     /** 全部已知词（纠错用）。 */
     public synchronized List<String> allWords() {
         return new ArrayList<>(entries.keySet());
@@ -337,9 +360,15 @@ public final class SearchHistoryStore {
         return now;
     }
 
+    /**
+     * 收藏列表。★ limit <= 0 表示不设上限（中键收藏不占 8 条配额，玩家收藏多少就多少）。
+     */
     public synchronized List<String> favorites(int limit) {
         List<String> out = new ArrayList<>();
-        for (String s : favorites) { if (out.size() >= limit) break; out.add(s); }
+        for (String s : favorites) {
+            if (limit > 0 && out.size() >= limit) break;
+            out.add(s);
+        }
         return out;
     }
 

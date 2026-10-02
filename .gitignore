@@ -27,6 +27,10 @@ compile.log
 *.log
 *.tmp
 
+# 本机专用构建脚本（路径是这台机器独有的）
+build_run.cmd
+build_run*.cmd
+
 # 系统
 Thumbs.db
 desktop.ini

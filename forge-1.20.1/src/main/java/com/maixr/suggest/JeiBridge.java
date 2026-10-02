@@ -35,6 +35,7 @@ public final class JeiBridge {
     private static Method overlayGetUnderMouse;  // IIngredientListOverlay.getIngredientUnderMouse()
     private static Method overlayIsDisplayed;    // IIngredientListOverlay.isListDisplayed()
     private static Method typedGetItemStack;     // ITypedIngredient.getItemStack()
+    private static Method rtGetIngredientManager; // IJeiRuntime.getIngredientManager()（亚空间索引用）
 
     private JeiBridge() {}
 
@@ -79,6 +80,7 @@ public final class JeiBridge {
             overlayHasFocus = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "hasKeyboardFocus");
             overlayGetUnderMouse = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "getIngredientUnderMouse");
             overlayIsDisplayed = method(Class.forName("mezz.jei.api.runtime.IIngredientListOverlay"), "isListDisplayed");
+            rtGetIngredientManager = method(Class.forName("mezz.jei.api.runtime.IJeiRuntime"), "getIngredientManager");
             try {
                 typedGetItemStack = Class.forName("mezz.jei.api.ingredients.ITypedIngredient")
                         .getMethod("getItemStack");
@@ -216,6 +218,52 @@ public final class JeiBridge {
             return n != 0;
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    private static java.lang.reflect.Method managerGetAllItemStacks;
+    private static boolean allItemsResolved = false;
+    private static java.util.Set<String> cachedJeiIds = null;
+    private static long jeiIdsAt = 0L;
+
+    /**
+     * ★ JEI 收录的全部物品 id（形如 minecraft:diamond）。
+     *
+     * 用 IIngredientManager.getAllItemStacks()（JEI 官方 API）。
+     * 亚空间索引拿它做差集：注册表里有、这个集合里没有 = JEI 搜不到的东西。
+     * 拿不到时返回 null（调用方会放弃建立亚空间索引，而不是误判成"JEI 什么都没有"）。
+     */
+    public static java.util.Set<String> jeiItemIds() {
+        long now = System.currentTimeMillis();
+        if (cachedJeiIds != null && now - jeiIdsAt < 300_000L) return cachedJeiIds;
+        Object rt = runtime();
+        if (rt == null) return null;
+        try {
+            if (!allItemsResolved) {
+                allItemsResolved = true;
+                try {
+                    Class<?> mgr = Class.forName("mezz.jei.api.runtime.IIngredientManager");
+                    managerGetAllItemStacks = mgr.getMethod("getAllItemStacks");
+                } catch (Throwable ignored) {}
+            }
+            if (managerGetAllItemStacks == null) return null;
+            Object mgr = rtGetIngredientManager != null ? rtGetIngredientManager.invoke(rt) : null;
+            if (mgr == null) return null;
+            Object listObj = managerGetAllItemStacks.invoke(mgr);
+            if (!(listObj instanceof java.util.Collection<?> col)) return null;
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (Object o : col) {
+                if (o instanceof net.minecraft.world.item.ItemStack st && !st.isEmpty()) {
+                    net.minecraft.resources.ResourceLocation rl =
+                            net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(st.getItem());
+                    if (rl != null) ids.add(rl.toString());
+                }
+            }
+            cachedJeiIds = ids;
+            jeiIdsAt = now;
+            return ids;
+        } catch (Throwable t) {
+            return null;
         }
     }
 

@@ -23,6 +23,8 @@ import java.util.*;
  */
 public final class SuggestionEngine {
     private static final Random RANDOM = new Random();
+    /** 紫色「搜过」最多顶上来几条（浏览器地址栏一般也就 3~6 条） */
+    private static final int SEARCHED_MAX = 5;
     private static List<Suggestion> randomPool = List.of();
     private static long poolLoadedAt = 0L;
     private static Map<String, String> modAliases = null;
@@ -421,9 +423,13 @@ public final class SuggestionEngine {
         return fixed;
     }
 
-    /** 收藏候选（右键加星的那些词）。 */
+    /**
+     * 收藏候选。
+     * ★ limit <= 0 = 不设上限（中键收藏的条目全部列出，不占 8 条配额）。
+     * 配置里 favorite 设成 0 即表示"不限量"。
+     */
     private static List<Suggestion> favoriteSuggestions() {
-        int q = 2;
+        int q = 0;
         try { q = SuggestConfig.FAVORITE_COUNT.get(); } catch (Throwable ignored) {}
         List<Suggestion> out = new ArrayList<>();
         for (String w : SearchHistoryStore.get().favorites(q)) {
@@ -496,13 +502,29 @@ public final class SuggestionEngine {
         return out;
     }
 
-    /** 混合页：按配置配额组装，然后截到"一页"的长度（有伊甸时多一行）。 */
+    /**
+     * 混合页。
+     *
+     * ★ 尺寸规则（用户要求）：
+     *   基础 8 条 = 配额内容（最近/任务/常搜/推荐…）
+     *   + 收藏的条数（**收藏不占那 8 条**，多收藏一个就多一行 → 9、10…）
+     *   + 伊甸需求物品（有则 +1）
+     *   所以收藏 2 个 + 有伊甸 = 8 + 2 + 1 = 11 行。
+     */
     public static List<Suggestion> buildMixed() {
         List<Suggestion> all = build();
-        int cap = rowsPerPage();
+        // build()/finish() 已把收藏排在最前，这里只需算出"除了收藏之外"放几条
+        int favCount = 0;
         for (Suggestion s : all) {
-            if (s.badge != null && "伊甸".equals(s.badge)) { cap++; break; }
+            if (s.source == Suggestion.Source.FAVORITE) favCount++;
+            else break;                                  // 收藏都在最前面，后面的就是普通候选
         }
+        int base = rowsPerPage();                        // 8
+        boolean eden = false;
+        for (Suggestion s : all) {
+            if (s.badge != null && "伊甸".equals(s.badge)) { eden = true; break; }
+        }
+        int cap = favCount + base + (eden ? 1 : 0);
         if (all.size() <= cap) return all;
         return new ArrayList<>(all.subList(0, cap));
     }
@@ -638,14 +660,24 @@ public final class SuggestionEngine {
         List<Suggestion> out = new ArrayList<>();
         LinkedHashSet<String> seen = new LinkedHashSet<>();
 
-        // ① ★ 上次搜这个词之后你点开的物品（优先级最高）
+        // ⓪ ★★ 紫色「搜过」回放：像浏览器地址栏那样，把你搜过的词优先顶上来
+        //    搜过「256k化学品元件」，以后输入「256」它就排第一；输入 jxdl 也认（拼音）。
+        for (String w : SearchHistoryStore.get().searchedWords(200)) {
+            if (out.size() >= SEARCHED_MAX) break;
+            if (w.equalsIgnoreCase(input.trim())) continue;              // 完全相同的不重复推荐
+            if (aliasMatch(w, input, true) && seen.add("searched:" + w)) {
+                out.add(new Suggestion(w, toQuery(w), Suggestion.Source.SEARCHED, "搜过"));
+            }
+        }
+
+        // ① ★ 上次搜这个词之后你点开的物品
         int pickQ = 1;
         try { pickQ = SuggestConfig.PICK_COUNT.get(); } catch (Throwable ignored) {}
         for (String n : SearchHistoryStore.get().pickedNames(input, pickQ)) {
             addSug(out, seen, "pick:" + n, new Suggestion(n, toQuery(n), Suggestion.Source.PICK, "上次"));
         }
 
-        // ② 历史里匹配的
+        // ② 历史里匹配的（作为【最近】，与上面的紫色回放互补）
         for (String w : allHistory()) {
             if (out.size() >= limit) break;
             if (PinyinBridge.matches(w, input, prefixOnly) && seen.add("hist:" + w)) {
@@ -698,6 +730,19 @@ public final class SuggestionEngine {
 
         // ⑤b ★ 从**真实标签注册表**推导标签：输入「剑」→ 上面匹配到的剑所属的标签 → #swords
         if (out.size() < limit) addTagHints(out, seen, input, 2, matchedItems);
+
+        // ⑤c ★★ 亚空间搜索：JEI 收录不到、但游戏里真实存在的物品
+        //     （命令方块、屏障、结构空位，以及名字是原始翻译键的物品）
+        if (SuggestConfig.VOID_SEARCH.get() && out.size() < limit) {
+            int voidQ = Math.min(3, limit - out.size());
+            for (VoidIndex.Entry e : VoidIndex.find(input, voidQ)) {
+                if (!seen.add("void:" + e.id)) continue;
+                // 显示名优先用游戏里的名字；是原始键就直接显示键名，便于识别
+                String label = e.rawKey ? e.name : e.name;
+                out.add(new Suggestion(label, label, Suggestion.Source.VOID,
+                        e.rawKey ? "亚空间·原键" : "亚空间"));
+            }
+        }
 
         // ⑥ ★ 纠错：「你是不是想搜…」
         if (SuggestConfig.CORRECTION.get() && matchedItems.isEmpty()) {

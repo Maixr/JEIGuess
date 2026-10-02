@@ -68,6 +68,9 @@ public final class ClientTicker {
             ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
             if (id == null) return;
             SearchHistoryStore.get().recordPick(q, id.toString(), stack.getHoverName().getString());
+            // ★ 玩家点了 JEI 列表里的物品 = 这次搜索"用上了" → 记进历史（紫色「搜过」回放的数据源）
+            //   比"失焦/停手"精确得多：只有真的用了这个词才记，不会记半截输入。
+            SearchHistoryStore.get().recordSearch(q.trim());
             SearchHistoryStore.get().saveLater();
         } catch (Throwable ignored) {}
     }

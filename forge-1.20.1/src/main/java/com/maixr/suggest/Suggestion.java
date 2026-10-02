@@ -17,9 +17,11 @@ public final class Suggestion {
         RANDOM("推荐", 0xFF81C784),      // 绿
         MOD("模组", 0xFFFFA726),         // 橙（识别为 mod 名，点击搜索 @modid）
         TAG("标签", 0xFF9ACD32),         // 黄绿（识别为物品标签，点击搜索 #tag）
-        FAVORITE("收藏", 0xFFFFD700),    // 金（右键加星，永远排最前）
+        FAVORITE("收藏", 0xFFFFD700),    // 金（中键收藏，永远排最前，不占配额）
+        SEARCHED("搜过", 0xFFB96BFF),    // ★ 紫（你搜过的词，像浏览器一样补全在最上面）
         PICK("上次", 0xFF80CBC4),        // 青绿（上次搜这个词之后你点开的物品）
         HOT("热词", 0xFFFF8A65),         // 橙红（服务器热词，需服务端也装本 mod）
+        VOID("亚空间", 0xFF7FD8FF),      // ★ 冰蓝（JEI 收录不到、但游戏里真实存在的物品）
         PLAIN("", 0xFFE0E0E0);           // 无标签 · 白（输入时匹配到的物品名走这个）
 
         public final String label;
