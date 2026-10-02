@@ -660,14 +660,25 @@ public final class SuggestionEngine {
         List<Suggestion> out = new ArrayList<>();
         LinkedHashSet<String> seen = new LinkedHashSet<>();
 
-        // ⓪ ★★ 紫色「搜过」回放：像浏览器地址栏那样，把你搜过的词优先顶上来
-        //    搜过「256k化学品元件」，以后输入「256」它就排第一；输入 jxdl 也认（拼音）。
-        for (String w : SearchHistoryStore.get().searchedWords(200)) {
-            if (out.size() >= SEARCHED_MAX) break;
+        // ⓪ ★★ 紫色「搜过」回放 —— 像浏览器地址栏，但排序是**打分**不是"按时间"
+        //    score = 频次(log) × 时间衰减(半衰期14天) × 匹配质量(前缀>词首>包含) − 空结果惩罚
+        //    这样"搜过 256k化学品元件"会稳定压过"很久以前搜过一次 256 的某个词"。
+        List<Suggestion> searched = new ArrayList<>();
+        for (SearchHistoryStore.Entry e : SearchHistoryStore.get().searchedEntries()) {
+            String w = e.word;
             if (w.equalsIgnoreCase(input.trim())) continue;              // 完全相同的不重复推荐
-            if (aliasMatch(w, input, true) && seen.add("searched:" + w)) {
-                out.add(new Suggestion(w, toQuery(w), Suggestion.Source.SEARCHED, "搜过"));
-            }
+            if (!aliasMatch(w, input, true)) continue;
+            Suggestion s = new Suggestion(w, toQuery(w), Suggestion.Source.SEARCHED, "搜过");
+            s.score = SuggestionScore.score(e.count, e.lastUsed, e.emptyHits, w, input);
+            // ★ 高亮命中的那一段（像浏览器把补全的输入部分标亮）
+            int at = w.toLowerCase(Locale.ROOT).indexOf(key);
+            if (at >= 0) { s.hlStart = at; s.hlEnd = at + key.length(); }
+            searched.add(s);
+        }
+        searched.sort((a, b) -> Double.compare(b.score, a.score));
+        for (Suggestion s : searched) {
+            if (out.size() >= SEARCHED_MAX) break;
+            if (seen.add("searched:" + s.display)) out.add(s);
         }
 
         // ① ★ 上次搜这个词之后你点开的物品
@@ -737,10 +748,12 @@ public final class SuggestionEngine {
             int voidQ = Math.min(3, limit - out.size());
             for (VoidIndex.Entry e : VoidIndex.find(input, voidQ)) {
                 if (!seen.add("void:" + e.id)) continue;
-                // 显示名优先用游戏里的名字；是原始键就直接显示键名，便于识别
-                String label = e.rawKey ? e.name : e.name;
-                out.add(new Suggestion(label, label, Suggestion.Source.VOID,
-                        e.rawKey ? "亚空间·原键" : "亚空间"));
+                // ★ 右侧标注「归属mod · 原因」，直接回答"这是啥、为什么 JEI 里没有"
+                String why = "nolang".equals(e.why) ? "无翻译" : "JEI隐藏";
+                String badge = e.modName + " · " + why;
+                Suggestion s = new Suggestion(e.name, e.id, Suggestion.Source.VOID, badge);
+                // 查询词用物品 id（点击/复制都按 id 走）
+                out.add(s);
             }
         }
 

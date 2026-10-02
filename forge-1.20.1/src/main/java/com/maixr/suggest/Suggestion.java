@@ -37,6 +37,14 @@ public final class Suggestion {
     public final String badge;
     /** ★ true = 这行只有在鼠标悬停时才显示右侧小字（任务名很长，常显会挤） */
     public final boolean badgeOnHover;
+    /**
+     * ★ 排序分（越大越靠前）。默认 0 = 不参与打分，保持插入顺序。
+     * 只有紫色「搜过」这类"量多需要排序"的来源会填它。
+     */
+    public double score = 0;
+    /** ★ 命中高亮区间 [start, end)（仅"搜过"回放用；-1 = 不高亮） */
+    public int hlStart = -1;
+    public int hlEnd = -1;
 
     public Suggestion(String display, String query, Source source) { this(display, query, source, ""); }
 

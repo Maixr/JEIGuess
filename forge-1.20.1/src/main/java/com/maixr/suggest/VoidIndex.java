@@ -7,6 +7,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -15,15 +16,18 @@ import java.util.Set;
  * ★ 亚空间索引：JEI「管不到」但游戏里真实存在的物品。
  *
  * 两类：
- *   ① 在物品注册表里、但 JEI 的原料管理器里没有 —— 典型如命令方块、屏障、结构空位、调试棒，
- *      还有被整合包用 JEI 隐藏机制藏起来的物品。
- *   ② 名字是**原始翻译键**的物品（形如 item.tacz.attachment / block.xxx.yyy）——
- *      没有 lang 条目，中文名就是键名本身，正常搜索永远命中不了。
+ *   ① 在物品注册表里、但 JEI 的原料管理器里没有 —— 命令方块、屏障、结构空位，
+ *      以及被整合包用 JEI 隐藏机制藏起来的物品。
+ *   ② 名字是**原始翻译键**的物品（item.tacz.attachment / block.xxx.yyy）——
+ *      没有 lang 条目，显示名就是键名本身，正常搜索永远命中不了。
  *
- * 这个索引本身只是在内存里做一次注册表遍历，很便宜；构建一次后缓存 5 分钟。
+ * ★ 性能：和 ItemNameIndex 一样**分帧构建**（每 tick 处理一批），
+ *   绝不可以在渲染线程一次性遍历 2 万个物品。
  */
 public final class VoidIndex {
-    /** 一条「亚空间」物品。 */
+    /** 一批处理多少个物品 */
+    private static final int BATCH = 400;
+
     public static final class Entry {
         /** minecraft:command_block */
         public final String id;
@@ -33,57 +37,83 @@ public final class VoidIndex {
         public final String name;
         /** 名字是不是原始翻译键（没有 lang） */
         public final boolean rawKey;
+        /** 归属 mod 的显示名（从 namespace 推断） */
+        public final String modName;
+        /** 为什么 JEI 里没有：hidden（被 JEI 隐藏）/ nolang（没有翻译） */
+        public final String why;
 
-        Entry(String id, String path, String name, boolean rawKey) {
-            this.id = id;
-            this.path = path;
-            this.name = name;
-            this.rawKey = rawKey;
+        Entry(String id, String path, String name, boolean rawKey, String modName, String why) {
+            this.id = id; this.path = path; this.name = name;
+            this.rawKey = rawKey; this.modName = modName; this.why = why;
         }
     }
 
-    private static List<Entry> all = null;
+    private static final List<Entry> ALL = new ArrayList<>();
+    private static volatile boolean built = false;
+    private static volatile boolean building = false;
+    private static Set<String> jeiIds = null;
+    private static Iterator<Item> cursor = null;
     private static long builtAt = 0L;
-    private static int lastJeiCount = -1;
 
     private VoidIndex() {}
 
-    /** 全部亚空间物品（缓存 5 分钟；JEI 列表变化时重建）。 */
-    public static List<Entry> all() {
-        long now = System.currentTimeMillis();
-        if (all != null && now - builtAt < 300_000L) return all;
-        builtAt = now;
-        List<Entry> out = new ArrayList<>();
-        try {
-            Set<String> jeiIds = JeiBridge.jeiItemIds();     // JEI 管得到的物品 id
-            if (jeiIds == null) return all == null ? List.of() : all;
-            if (all != null && jeiIds.size() == lastJeiCount) return all;
-            lastJeiCount = jeiIds.size();
-
-            for (Item item : BuiltInRegistries.ITEM) {
-                try {
-                    ResourceLocation key = BuiltInRegistries.ITEM.getKey(item);
-                    if (key == null) continue;
-                    String id = key.toString();
-                    String name = new ItemStack(item).getHoverName().getString();
-                    boolean raw = isRawKey(name);
-                    boolean inJei = jeiIds.contains(id);
-                    // ★ 只收：JEI 没有的，或者名字是原始键的
-                    if (inJei && !raw) continue;
-                    if (name == null || name.isBlank()) name = key.getPath();
-                    out.add(new Entry(id, key.getPath(), name, raw));
-                } catch (Throwable ignored) {}
-            }
-            all = out;
-            MaixrSuggestMod.LOGGER.info("[猜你想搜] 亚空间索引已建立：{} 条（JEI 收录 {} 个物品）", out.size(), jeiIds.size());
-        } catch (Throwable t) {
-            MaixrSuggestMod.LOGGER.info("[猜你想搜] 建立亚空间索引失败: {}", t.toString());
-            if (all == null) all = List.of();
+    /** 分帧构建（由客户端 tick 调用）。JEI 没就绪 / 已建好就直接返回。 */
+    public static void buildIncrementally() {
+        if (built || building) return;
+        if (jeiIds == null) {
+            jeiIds = JeiBridge.jeiItemIds();
+            if (jeiIds == null) return;                      // JEI 还没就绪，下次 tick 再试
+            cursor = BuiltInRegistries.ITEM.iterator();
+            building = true;
         }
-        return all;
+        try {
+            int n = 0;
+            while (cursor.hasNext() && n < BATCH) {
+                addOne(cursor.next());
+                n++;
+            }
+            if (!cursor.hasNext()) {
+                building = false;
+                built = true;
+                builtAt = System.currentTimeMillis();
+                MaixrSuggestMod.LOGGER.info("[猜你想搜] 亚空间索引构建完成：{} 条（JEI 收录 {} 个物品）",
+                        ALL.size(), jeiIds.size());
+            }
+        } catch (Throwable t) {
+            building = false;
+            built = true;
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 亚空间索引构建中断: {}", t.toString());
+        }
     }
 
-    public static boolean isReady() { return all != null && !all.isEmpty(); }
+    private static void addOne(Item item) {
+        try {
+            ResourceLocation key = BuiltInRegistries.ITEM.getKey(item);
+            if (key == null) return;
+            String id = key.toString();
+            String name = new ItemStack(item).getHoverName().getString();
+            boolean raw = isRawKey(name);
+            boolean inJei = jeiIds.contains(id);
+            if (inJei && !raw) return;                       // JEI 有、名字也正常 → 不是亚空间
+            if (name == null || name.isBlank()) name = key.getPath();
+            String why = inJei ? "nolang" : (raw ? "nolang" : "hidden");
+            ALL.add(new Entry(id, key.getPath(), name, raw, modNameOf(key.getNamespace()), why));
+        } catch (Throwable ignored) {}
+    }
+
+    /** 从 namespace 推断 mod 显示名。 */
+    private static String modNameOf(String ns) {
+        try {
+            return net.minecraftforge.fml.ModList.get().getModContainerById(ns)
+                    .map(c -> c.getModInfo().getDisplayName())
+                    .filter(n -> n != null && !n.isBlank())
+                    .orElse(ns);
+        } catch (Throwable t) {
+            return ns;
+        }
+    }
+
+    public static boolean isBuilt() { return built; }
 
     /** 名字是不是原始翻译键（item.xxx.yyy / block.xxx.yyy 这种）。 */
     private static boolean isRawKey(String n) {
@@ -95,28 +125,26 @@ public final class VoidIndex {
                 || parts[0].equals("entity") || parts[0].equals("fluid") || parts[0].equals("gui");
     }
 
+    /** 全部（构建完才有内容）。 */
+    public static List<Entry> all() { return ALL; }
+
     /**
      * 按输入找亚空间物品。
      * 匹配顺序：名字前缀 → id 前缀 → 名字包含 → id 包含。
      */
     public static List<Entry> find(String input, int limit) {
         List<Entry> out = new ArrayList<>();
-        if (limit <= 0 || input == null || input.isBlank()) return out;
+        if (limit <= 0 || input == null || input.isBlank() || !built) return out;
         String key = input.trim().toLowerCase(Locale.ROOT);
-        List<Entry> data = all();
-        if (data.isEmpty()) return out;
-
         Set<String> taken = new HashSet<>();
-        // ① 名字前缀 / id 前缀
-        for (Entry e : data) {
+        for (Entry e : ALL) {
             if (out.size() >= limit) break;
             if (e.name.toLowerCase(Locale.ROOT).startsWith(key) || e.id.toLowerCase(Locale.ROOT).startsWith(key)) {
                 if (taken.add(e.id)) out.add(e);
             }
         }
-        // ② 名字包含 / id 包含（至少 2 个字符，避免噪音）
         if (out.size() < limit && key.length() >= 2) {
-            for (Entry e : data) {
+            for (Entry e : ALL) {
                 if (out.size() >= limit) break;
                 if (e.name.toLowerCase(Locale.ROOT).contains(key) || e.id.toLowerCase(Locale.ROOT).contains(key)) {
                     if (taken.add(e.id)) out.add(e);
@@ -124,5 +152,11 @@ public final class VoidIndex {
             }
         }
         return out;
+    }
+
+    /** 按 id 精确查一条（注入 JEI / 命令用）。 */
+    public static Entry byId(String id) {
+        for (Entry e : ALL) if (e.id.equalsIgnoreCase(id)) return e;
+        return null;
     }
 }

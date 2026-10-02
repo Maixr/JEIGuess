@@ -263,7 +263,18 @@ public final class SuggestOverlay {
             int badgeW = (s.badge.isEmpty() || (s.badgeOnHover && !sel)) ? 0 : font.width(s.badge) + 4;
             String name = fit(font, s.display, nameRight - textX - badgeW);
             int textColor = sel ? 0xFFFFFFFF : s.source.color;
-            g.drawString(font, name, textX, y + 2, textColor, false);
+            // ★ 命中高亮：紫色「搜过」把玩家输入的那段画成亮色（像浏览器补全高亮）
+            if (s.hlStart >= 0 && s.hlEnd > s.hlStart && s.hlEnd <= name.length()) {
+                String pre = name.substring(0, s.hlStart);
+                String hit = name.substring(s.hlStart, s.hlEnd);
+                String post = name.substring(s.hlEnd);
+                g.drawString(font, pre, textX, y + 2, textColor, false);
+                int hx = textX + font.width(pre);
+                g.drawString(font, hit, hx, y + 2, sel ? 0xFFFFFFAA : 0xFFFFFF55, false);
+                g.drawString(font, post, hx + font.width(hit), y + 2, textColor, false);
+            } else {
+                g.drawString(font, name, textX, y + 2, textColor, false);
+            }
             if (badgeW > 0) {
                 g.drawString(font, s.badge, nameRight - font.width(s.badge), y + 2, HINT, false);
             }

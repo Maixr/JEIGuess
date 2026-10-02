@@ -267,6 +267,43 @@ public final class JeiBridge {
         }
     }
 
+    private static java.lang.reflect.Method managerAddIngredients;
+    private static boolean addResolved = false;
+
+    /**
+     * ★ 按需把一个物品注入 JEI（IIngredientManager.addIngredientsAtRuntime）。
+     * 只在玩家明确要求时调用（/jeiguess inject <id>），平时绝不注入 —— 避免拖慢 JEI 索引。
+     *
+     * @return 是否注入成功
+     */
+    public static boolean injectItem(net.minecraft.world.item.ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        Object rt = runtime();
+        if (rt == null) return false;
+        try {
+            if (!addResolved) {
+                addResolved = true;
+                try {
+                    Class<?> mgr = Class.forName("mezz.jei.api.runtime.IIngredientManager");
+                    Class<?> type = Class.forName("mezz.jei.api.ingredients.IIngredientType");
+                    Class<?> vanilla = Class.forName("mezz.jei.api.constants.VanillaTypes");
+                    managerAddIngredients = mgr.getMethod("addIngredientsAtRuntime", type, java.util.Collection.class);
+                    vanillaType = vanilla.getField("ITEM_STACK").get(null);
+                } catch (Throwable ignored) {}
+            }
+            if (managerAddIngredients == null || vanillaType == null) return false;
+            Object mgr = rtGetIngredientManager != null ? rtGetIngredientManager.invoke(rt) : null;
+            if (mgr == null) return false;
+            managerAddIngredients.invoke(mgr, vanillaType, java.util.List.of(stack));
+            return true;
+        } catch (Throwable t) {
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 注入 JEI 失败: {}", t.toString());
+            return false;
+        }
+    }
+
+    private static Object vanillaType = null;
+
     /**
      * ★ 鼠标下正在悬停的 JEI 物品（用于记录「搜完这个词之后你点开了哪个物品」）。
      * 拿不到就返回 null，调用方静默跳过。

@@ -33,6 +33,7 @@ public final class ClientTicker {
         if (event.phase != TickEvent.Phase.END) return;
         if (!ItemNameIndex.isBuilt()) ItemNameIndex.buildIncrementally();
         else if (!ItemLinkIndex.isBuilt()) ItemLinkIndex.buildIncrementally();
+        else if (!VoidIndex.isBuilt()) VoidIndex.buildIncrementally();   // ★ 亚空间索引也分帧建
         SearchHistoryStore.get().flushIfDirty();
         QuestWatch.tick();
         tickHotWords();
