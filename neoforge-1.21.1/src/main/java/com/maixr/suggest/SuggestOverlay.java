@@ -368,12 +368,69 @@ public final class SuggestOverlay {
      *   其它 → 复制显示文本本身
      */
     private static void copyIdOf(Suggestion s) {
+        String cl = "物品 ID";
+        String text = null;
         switch (s.source) {
-            case MOD -> copyToClipboard(s.query.startsWith("@") ? s.query : "@" + s.query, "模组 ID");
-            case TAG -> copyToClipboard(s.query.startsWith("#") ? s.query : "#" + s.query, "标签 ID");
-            case VOID -> copyToClipboard(s.query, "物品 ID");
-            default -> copyToClipboard(s.query, "搜索词");
+            case MOD -> {
+                text = s.query.startsWith("@") ? s.query : "@" + s.query;
+                cl = "模组 ID";
+            }
+            case TAG -> {
+                text = s.query.startsWith("#") ? s.query : "#" + s.query;
+                cl = "标签 ID";
+            }
+            case VOID -> text = s.query;
+            default -> {
+                // ★ 复制的是**物品 id**，不是中文显示名（用户要求）。
+                //   索引里有 名字→物品 的映射，拿显示名反查得到 minecraft:oak_log。
+                //   只有确实不是物品名（比如某个自定义搜索词）才退回原文本。
+                text = itemIdOf(s.display);
+                if (text == null) text = itemIdOf(s.query);
+                if (text == null) { text = s.query; cl = "搜索词"; }
+            }
         }
+        copyToClipboard(text, cl);
+    }
+
+    /**
+     * ★ 把显示名反查成物品 id（minecraft:oak_log）。
+     *
+     * 三条路子，按可靠性排序：
+     *   ① 名字索引的 名字→物品 映射（最快，覆盖所有已收录物品）
+     *   ② 名字本身就已经是 id（含 ":" 且能解析）
+     *   ③ 遍历注册表按显示名比对（兜底，处理索引进度不足的情况）
+     */
+    private static String itemIdOf(String name) {
+        if (name == null || name.isBlank()) return null;
+        String n = name.trim();
+        // ② 本来就是 id
+        try {
+            var direct = net.minecraft.resources.ResourceLocation.tryParse(n);
+            if (direct != null && n.indexOf(':') > 0
+                    && net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(direct)) {
+                return direct.toString();
+            }
+        } catch (Throwable ignored) {}
+        // ① 名字索引反查
+        try {
+            var item = ItemNameIndex.itemOf(n);
+            if (item != null) {
+                var rl = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item);
+                if (rl != null) return rl.toString();
+            }
+        } catch (Throwable ignored) {}
+        // ③ 遍历兜底
+        try {
+            for (var item : net.minecraft.core.registries.BuiltInRegistries.ITEM) {
+                try {
+                    if (new net.minecraft.world.item.ItemStack(item).getHoverName().getString().equals(n)) {
+                        var rl = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item);
+                        if (rl != null) return rl.toString();
+                    }
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+        return null;
     }
 
     @SubscribeEvent

@@ -34,6 +34,9 @@ public final class ItemLinkIndex {
     /** 分帧构建（客户端 tick 调用）。 */
     public static void buildIncrementally() {
         if (built) return;
+        // ★ 与物品名索引共用同一个语言表门控：语言没就绪时，getHoverName() 返回的是
+        //   原始翻译键，会把所有物品误判成"无翻译"，索引内容全错。
+        if (!ItemNameIndex.readyToBuild()) return;
         // ★ 必须等玩家进入世界：标签需要 registryAccess，主菜单时 level 为 null，
         //   若此时构建会导致标签索引永久缺失（索引只建一次的）。
         if (net.minecraft.client.Minecraft.getInstance().level == null) return;

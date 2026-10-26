@@ -60,6 +60,9 @@ public final class VoidIndex {
     /** 分帧构建（由客户端 tick 调用）。JEI 没就绪 / 已建好就直接返回。 */
     public static void buildIncrementally() {
         if (built || building) return;
+        // ★ 与物品名索引共用语言表门控：语言没就绪时 getHoverName() 返回原始键，
+        //   会把几乎所有物品都误判成"无翻译"塞进亚空间索引。
+        if (!ItemNameIndex.readyToBuild()) return;
         if (jeiIds == null) {
             jeiIds = JeiBridge.jeiItemIds();
             if (jeiIds == null) return;                      // JEI 还没就绪，下次 tick 再试

@@ -11,8 +11,7 @@ import java.lang.reflect.Method;
 public final class PinyinBridge {
     private static boolean resolved = false;
     private static Object pinIn;
-    private static Method begins;
-    private static Method contains;
+    private static Method begins, contains, getChar, pinyins;
 
     private PinyinBridge() {}
 
@@ -24,13 +23,10 @@ public final class PinyinBridge {
             pinIn = pinInCls.getConstructor().newInstance();
             begins = pinInCls.getMethod("begins", String.class, String.class);
             contains = pinInCls.getMethod("contains", String.class, String.class);
-            // 自检：用一个最常见的字验证参数顺序
+            getChar = pinInCls.getMethod("getChar", char.class);
+            pinyins = Class.forName("me.towdium.pinin.elements.Char").getMethod("pinyins");
             boolean ok = (Boolean) begins.invoke(pinIn, "钻石", "zs");
-            if (!ok) {
-                MaixrSuggestMod.LOGGER.info("[猜你想搜] 拼音库参数顺序自检未通过，改用反向调用");
-                begins = pinInCls.getMethod("begins", String.class, String.class);
-            }
-            MaixrSuggestMod.LOGGER.info("[猜你想搜] 拼音库已接入（JEC PinIn）");
+            MaixrSuggestMod.LOGGER.info("[猜你想搜] 拼音库已接入（JEC PinIn），自检={}", ok);
         } catch (Throwable t) {
             pinIn = null;
             MaixrSuggestMod.LOGGER.info("[猜你想搜] 未接入拼音库（未装 JEC 或结构不同）: {}", t.toString());
@@ -61,5 +57,63 @@ public final class PinyinBridge {
         if (!prefixOnly && t.contains(q)) return true;
         if (beginsWith(text, query)) return true;
         return !prefixOnly && containsPinyin(text, query);
+    }
+
+    private static final java.util.Map<Character, Character> INITIAL_CACHE = new java.util.HashMap<>();
+
+    /**
+     * ★ 单个字的拼音首字母（砖 → z，钻 → z；石 → s，色 → s）。
+     *
+     * 用来判断"错别字是否同音"：只差一个字且同音，才算拼写错误；
+     * 否则 2 字词几乎能配上任何物品（红石→红色、石英→石磨 这类误报）。
+     * 拿不到时返回 0。
+     */
+    public static char initialOf(char c) {
+        if (c < 128) return Character.toLowerCase(c);
+        resolve();
+        if (pinIn == null) return 0;
+        Character cached = INITIAL_CACHE.get(c);
+        if (cached != null) return cached;
+        try {
+            Object ch = getChar.invoke(pinIn, c);
+            Object[] pys = (Object[]) pinyins.invoke(ch);
+            if (pys == null || pys.length == 0) return 0;
+            String py = String.valueOf(pys[0]);
+            if (py.isEmpty()) return 0;
+            char r = Character.toLowerCase(py.charAt(0));
+            INITIAL_CACHE.put(c, r);
+            return r;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /**
+     * ★ 取一串文本的拼音首字母（黑曜石 → hys，会议室 → hys）。
+     *
+     * 谐音纠错要靠它：玩家把「黑曜石」打成「会议室」，字形/编辑距离都对不上，
+     * 但拼音首字母完全相同 —— 这是唯一能识别这种错的信号。
+     *
+     * 拿不到拼音（没装 JEC、或含无法识别的字符）时返回 null，调用方据此跳过。
+     */
+    public static String initials(String text) {
+        resolve();
+        if (pinIn == null || text == null || text.isEmpty()) return null;
+        try {
+            StringBuilder sb = new StringBuilder(text.length());
+            for (int i = 0; i < text.length(); i++) {
+                char c = text.charAt(i);
+                if (c < 128) { sb.append(Character.toLowerCase(c)); continue; }
+                Object ch = getChar.invoke(pinIn, c);
+                Object[] pys = (Object[]) pinyins.invoke(ch);
+                if (pys == null || pys.length == 0) return null;
+                String py = String.valueOf(pys[0]);
+                if (py.isEmpty()) return null;
+                sb.append(Character.toLowerCase(py.charAt(0)));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

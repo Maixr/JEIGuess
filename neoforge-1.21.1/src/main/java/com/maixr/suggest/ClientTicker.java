@@ -34,7 +34,9 @@ public final class ClientTicker {
         // ★ 三个索引**并行**推进，不要用 else if 串行！
         //   串行的后果：ItemNameIndex 没建完时，后面两个永远不开始 ——
     //   实测就因此让亚空间索引从未建立过（面板里永远没有【亚空间】条目）。
-        if (!ItemNameIndex.isBuilt()) ItemNameIndex.buildIncrementally();
+        // ★ 无条件调用（内部自己判断：没建→建；建了但语言表变了→重建）。
+        //   之前写成 if (!isBuilt()) 会让内部的自愈分支变成死代码。
+        ItemNameIndex.buildIncrementally();
         if (!ItemLinkIndex.isBuilt()) ItemLinkIndex.buildIncrementally();
         if (!VoidIndex.isBuilt()) VoidIndex.buildIncrementally();   // ★ 亚空间索引分帧建
         SearchHistoryStore.get().flushIfDirty();

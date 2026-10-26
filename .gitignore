@@ -42,3 +42,4 @@ libs/*.jar
 # NeoForge 1.21.1 的本地 maven 镜像（474MB，本机专用）
 neoforge-1.21.1/_maven/
 compile_run.cmd
+_aliasbuild/

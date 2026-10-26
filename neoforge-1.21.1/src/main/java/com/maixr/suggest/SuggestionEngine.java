@@ -758,7 +758,7 @@ public final class SuggestionEngine {
         }
 
         // ⑥ ★ 纠错：「你是不是想搜…」
-        if (SuggestConfig.CORRECTION.get() && matchedItems.isEmpty()) {
+        if (SuggestConfig.CORRECTION.get() && out.size() < 3) {   // 零结果或结果很少时才猜
             String fix = correction(input);
             if (fix != null) {
                 Suggestion s = new Suggestion(fix, toQuery(fix), Suggestion.Source.PLAIN, "你是不是想搜");
@@ -877,27 +877,71 @@ public final class SuggestionEngine {
         } catch (Throwable ignored) {}
     }
 
-    /** ★ 纠错：在物品名与历史词里找"最像"的那个（编辑距离 ≤ 2 且长度接近）。 */
+    /**
+     * ★ 猜你想搜（三档，越靠前越可信）：
+     *   ① 别名表：土豆 → 马铃薯（俗称 / 错别字，人工整理，见 jeiguess_aliases.json）
+     *   ② 编辑距离 ≤ 1 且字数相同：砖石 → 钻石
+     *   ③ 拼音首字母相同且字数相同：会议室 → 黑曜石
+     *
+     * 只返回**真实存在于物品名索引**的名字；任何一档拿不准就返回 null。
+     * 宁可没有提示，也不给错的提示。
+     */
     private static String correction(String input) {
         String key = input.trim();
         if (key.length() < 2 || key.length() > 16) return null;
-        if (modAliases().containsKey(key.toLowerCase(Locale.ROOT))) return null;
+        String lower = key.toLowerCase(Locale.ROOT);
+        if (ItemNameIndex.hasName(key)) return null;              // 本身就是物品名，不要瞎猜
+        if (modAliases().containsKey(lower)) return null;
         if (tagQueryOf(key) != null) return null;
-        List<String> cands = new ArrayList<>(ItemNameIndex.nearest(key, 3));
-        cands.addAll(SearchHistoryStore.get().allWords());
-        String best = null;
-        int bestD = Integer.MAX_VALUE;
-        for (String c : cands) {
-            if (c == null || c.isBlank()) continue;
-            int d = distance(key.toLowerCase(Locale.ROOT), c.toLowerCase(Locale.ROOT));
-            if (d < bestD && d <= 2 && Math.abs(c.length() - key.length()) <= 3) {
-                bestD = d;
-                best = c;
-            }
-        }
-        return best;
-    }
 
+        // ① 别名表（俗称 / 错字）
+        String alias = AliasIndex.lookup(key);
+        if (alias != null) return alias;
+
+        // ② 只差一个字，且这个字**同音**（砖/钻 都是 z）。
+        //   只靠编辑距离会把 2 字词配得满世界都是：红石→红色、石英→石磨、原木→橡木。
+        for (String n : ItemNameIndex.allNames()) {
+            if (n.length() != key.length()) continue;
+            if (oneSubstitutionSameSound(lower, n.toLowerCase(Locale.ROOT))) return n;
+        }
+
+        // ③ 拼音首字母全等（谐音错字：会议室 → 黑曜石）。
+        //   只对 3 字及以上生效：2 字词的首字母组合太少（hs/sy/ym），
+        //   几乎必然撞上一堆无关物品（红石→红色、石英→酸液），误报率高得没法用。
+        if (key.length() < 3) return null;
+        String ini = PinyinBridge.initials(key);
+        if (ini != null && !ini.isEmpty()) {
+            String best = null;
+            int bestD = Integer.MAX_VALUE;
+            for (String n : ItemNameIndex.byInitials(ini)) {
+                if (n.length() != key.length()) continue;
+                int d = distance(lower, n.toLowerCase(Locale.ROOT));
+                if (d < bestD) { bestD = d; best = n; }
+            }
+            if (best != null) return best;
+        }
+        return null;
+    }
+    /**
+     * ★ 两个等长词是否"只差一个字、且这个字同音"。
+     *
+     * 这是中文打错字的典型形态（砖石/钻石、黑耀石/黑曜石、马玲薯/马铃薯）。
+     * 不同音就不算拼写错误 —— 否则 2 字词几乎能配上任何物品
+     * （红石→红色、石英→石磨、原木→橡木 全是这么来的）。
+     */
+    private static boolean oneSubstitutionSameSound(String a, String b) {
+        if (a.length() != b.length()) return false;
+        int diff = -1;
+        for (int i = 0; i < a.length(); i++) {
+            if (a.charAt(i) == b.charAt(i)) continue;
+            if (diff >= 0) return false;              // 不止一处不同
+            diff = i;
+        }
+        if (diff < 0) return false;                   // 完全相同不算纠错
+        char ca = PinyinBridge.initialOf(a.charAt(diff));
+        char cb = PinyinBridge.initialOf(b.charAt(diff));
+        return ca != 0 && ca == cb;
+    }
     /** Levenshtein 距离（词都很短，直接滚动数组）。 */
     private static int distance(String a, String b) {
         int[] prev = new int[b.length() + 1];
