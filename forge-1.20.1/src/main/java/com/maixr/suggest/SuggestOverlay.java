@@ -261,7 +261,9 @@ public final class SuggestOverlay {
             }
             // ★ 悬停徽标只在悬停到这一行时才画（名字会自动让位）
             int badgeW = (s.badge.isEmpty() || (s.badgeOnHover && !sel)) ? 0 : font.width(s.badge) + 4;
-            String name = fit(font, s.display, nameRight - textX - badgeW);
+            // ★ 行尾中文说明（标签翻译）占位后再裁剪显示名，避免把中文挤掉
+            int hintW = (s.hint == null || s.hint.isEmpty()) ? 0 : font.width(s.hint) + 5;
+            String name = fit(font, s.display, nameRight - textX - badgeW - hintW);
             int textColor = sel ? 0xFFFFFFFF : s.source.color;
             // ★ 命中高亮：紫色「搜过」把玩家输入的那段画成亮色（像浏览器补全高亮）
             if (s.hlStart >= 0 && s.hlEnd > s.hlStart && s.hlEnd <= name.length()) {

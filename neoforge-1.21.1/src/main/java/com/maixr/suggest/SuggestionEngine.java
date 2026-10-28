@@ -814,7 +814,7 @@ public final class SuggestionEngine {
                 if (out.size() >= limit) break;
                 if (!tag.location().getPath().contains(r)) continue;
                 String id = "#" + tag.location();
-                out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id));
+                out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id).hint(tagHint(id)));
             }
         }
         if (out.isEmpty() && !r.isEmpty() && mod) {          // 没命中中文名就按 modid 前缀兜底
@@ -866,7 +866,7 @@ public final class SuggestionEngine {
                 if (e.getValue() < 2) continue;               // 至少两件物品共有才算一类
                 if (!seen.add("tagreg:" + e.getKey())) continue;
                 String id = e.getKey();
-                out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id));
+                out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id).hint(tagHint(id)));
                 added++;
             }
             String key = input.trim().toLowerCase(Locale.ROOT);
@@ -878,7 +878,7 @@ public final class SuggestionEngine {
                     if (!path.contains(key)) continue;
                     String id = "#" + tag.location();
                     if (!seen.add("tagreg:" + id)) continue;
-                    out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id));
+                    out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id).hint(tagHint(id)));
                     added++;
                 }
             }
@@ -899,6 +899,246 @@ public final class SuggestionEngine {
         String p = tag.location().getPath().toLowerCase(Locale.ROOT);
         return p.startsWith("enchantable/") || p.startsWith("enchatable/")
                 || p.contains("/vanishing") || p.contains("/durability");
+    }
+    /**
+     * ★ 标签的中文补充说明（行尾黄绿色）。
+     *
+     * 绿色显示名如果本来就是英文路径（没人看得懂），就在后面补一个中文翻译；
+     * 已经有中文显示名的不重复。
+     */
+    private static String tagHint(String id) {
+        try {
+            String raw = id.startsWith("#") ? id.substring(1) : id;
+            String path = raw.contains(":") ? raw.substring(raw.indexOf(':') + 1) : raw;
+            String display = tagDisplayName(id);
+            if (!display.equals(path)) return "";        // 显示名已是中文
+            return tagTranslate(path);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 英文标签路径 → 中文：整词精确匹配优先，否则按 / 与 _ 分段逐词翻译（有未识别的词就不硬翻）。 */
+    private static String tagTranslate(String path) {
+        Map<String, String> m = tagDisplayMap();
+        String full = m.get(path.toLowerCase(Locale.ROOT));
+        if (full != null) return full;
+        StringBuilder sb = new StringBuilder();
+        for (String seg : path.split("/")) {
+            if (sb.length() > 0) sb.append('/');
+            for (String w : seg.split("_")) {
+                String cn = TAG_WORDS.get(w.toLowerCase(Locale.ROOT));
+                if (cn == null) return "";               // 有不认识的词 → 宁可不翻
+                sb.append(cn);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** ★ 标签英文词 → 中文（够覆盖常见分类即可，缺的由 jeiguess_tag_display.json 补）。 */
+    private static final Map<String, String> TAG_WORDS = new HashMap<>();
+    static {
+        TAG_WORDS.put("storage", "存储");
+        TAG_WORDS.put("and", "与");
+        TAG_WORDS.put("mineable", "可采掘");
+        TAG_WORDS.put("double", "双");
+        TAG_WORDS.put("wooden", "木");
+        TAG_WORDS.put("c", "通用");
+        TAG_WORDS.put("block", "方块");
+        TAG_WORDS.put("blocks", "方块");
+        TAG_WORDS.put("raw", "粗");
+        TAG_WORDS.put("material", "材料");
+        TAG_WORDS.put("materials", "材料");
+        TAG_WORDS.put("ore", "矿石");
+        TAG_WORDS.put("ores", "矿石");
+        TAG_WORDS.put("ingot", "锭");
+        TAG_WORDS.put("ingots", "锭");
+        TAG_WORDS.put("nugget", "粒");
+        TAG_WORDS.put("nuggets", "粒");
+        TAG_WORDS.put("dust", "粉");
+        TAG_WORDS.put("dusts", "粉");
+        TAG_WORDS.put("gem", "宝石");
+        TAG_WORDS.put("gems", "宝石");
+        TAG_WORDS.put("rod", "棒");
+        TAG_WORDS.put("rods", "棒");
+        TAG_WORDS.put("gear", "齿轮");
+        TAG_WORDS.put("gears", "齿轮");
+        TAG_WORDS.put("plate", "板");
+        TAG_WORDS.put("plates", "板");
+        TAG_WORDS.put("wire", "线");
+        TAG_WORDS.put("wires", "线");
+        TAG_WORDS.put("log", "原木");
+        TAG_WORDS.put("logs", "原木");
+        TAG_WORDS.put("wood", "木头");
+        TAG_WORDS.put("planks", "木板");
+        TAG_WORDS.put("plank", "木板");
+        TAG_WORDS.put("slab", "台阶");
+        TAG_WORDS.put("slabs", "台阶");
+        TAG_WORDS.put("stair", "楼梯");
+        TAG_WORDS.put("stairs", "楼梯");
+        TAG_WORDS.put("wall", "墙");
+        TAG_WORDS.put("walls", "墙");
+        TAG_WORDS.put("fence", "栅栏");
+        TAG_WORDS.put("fences", "栅栏");
+        TAG_WORDS.put("gate", "门");
+        TAG_WORDS.put("gates", "门");
+        TAG_WORDS.put("door", "门");
+        TAG_WORDS.put("doors", "门");
+        TAG_WORDS.put("trapdoor", "活板门");
+        TAG_WORDS.put("trapdoors", "活板门");
+        TAG_WORDS.put("button", "按钮");
+        TAG_WORDS.put("buttons", "按钮");
+        TAG_WORDS.put("pressure", "压力");
+        TAG_WORDS.put("wool", "羊毛");
+        TAG_WORDS.put("dye", "染料");
+        TAG_WORDS.put("dyes", "染料");
+        TAG_WORDS.put("glass", "玻璃");
+        TAG_WORDS.put("terracotta", "陶瓦");
+        TAG_WORDS.put("concrete", "混凝土");
+        TAG_WORDS.put("sandstone", "砂岩");
+        TAG_WORDS.put("stone", "石头");
+        TAG_WORDS.put("stones", "石头");
+        TAG_WORDS.put("cobblestone", "圆石");
+        TAG_WORDS.put("dirt", "泥土");
+        TAG_WORDS.put("sand", "沙子");
+        TAG_WORDS.put("gravel", "沙砾");
+        TAG_WORDS.put("leaves", "树叶");
+        TAG_WORDS.put("sapling", "树苗");
+        TAG_WORDS.put("saplings", "树苗");
+        TAG_WORDS.put("flower", "花");
+        TAG_WORDS.put("flowers", "花");
+        TAG_WORDS.put("crop", "作物");
+        TAG_WORDS.put("crops", "作物");
+        TAG_WORDS.put("seed", "种子");
+        TAG_WORDS.put("seeds", "种子");
+        TAG_WORDS.put("food", "食物");
+        TAG_WORDS.put("foods", "食物");
+        TAG_WORDS.put("drink", "饮料");
+        TAG_WORDS.put("drinks", "饮料");
+        TAG_WORDS.put("meat", "肉");
+        TAG_WORDS.put("meats", "肉");
+        TAG_WORDS.put("fish", "鱼");
+        TAG_WORDS.put("fishes", "鱼");
+        TAG_WORDS.put("vegetable", "蔬菜");
+        TAG_WORDS.put("vegetables", "蔬菜");
+        TAG_WORDS.put("fruit", "水果");
+        TAG_WORDS.put("fruits", "水果");
+        TAG_WORDS.put("berry", "浆果");
+        TAG_WORDS.put("berries", "浆果");
+        TAG_WORDS.put("mushroom", "蘑菇");
+        TAG_WORDS.put("mushrooms", "蘑菇");
+        TAG_WORDS.put("nut", "坚果");
+        TAG_WORDS.put("nuts", "坚果");
+        TAG_WORDS.put("egg", "蛋");
+        TAG_WORDS.put("eggs", "蛋");
+        TAG_WORDS.put("honey", "蜂蜜");
+        TAG_WORDS.put("sugar", "糖");
+        TAG_WORDS.put("sword", "剑");
+        TAG_WORDS.put("swords", "剑");
+        TAG_WORDS.put("pickaxe", "镐");
+        TAG_WORDS.put("pickaxes", "镐");
+        TAG_WORDS.put("axe", "斧");
+        TAG_WORDS.put("axes", "斧");
+        TAG_WORDS.put("shovel", "锹");
+        TAG_WORDS.put("shovels", "锹");
+        TAG_WORDS.put("hoe", "锄");
+        TAG_WORDS.put("hoes", "锄");
+        TAG_WORDS.put("tool", "工具");
+        TAG_WORDS.put("tools", "工具");
+        TAG_WORDS.put("armor", "盔甲");
+        TAG_WORDS.put("helmet", "头盔");
+        TAG_WORDS.put("helmets", "头盔");
+        TAG_WORDS.put("chestplate", "胸甲");
+        TAG_WORDS.put("chestplates", "胸甲");
+        TAG_WORDS.put("leggings", "护腿");
+        TAG_WORDS.put("boot", "靴子");
+        TAG_WORDS.put("boots", "靴子");
+        TAG_WORDS.put("shield", "盾牌");
+        TAG_WORDS.put("shields", "盾牌");
+        TAG_WORDS.put("bow", "弓");
+        TAG_WORDS.put("bows", "弓");
+        TAG_WORDS.put("crossbow", "弩");
+        TAG_WORDS.put("crossbows", "弩");
+        TAG_WORDS.put("arrow", "箭");
+        TAG_WORDS.put("arrows", "箭");
+        TAG_WORDS.put("potion", "药水");
+        TAG_WORDS.put("potions", "药水");
+        TAG_WORDS.put("enchantable", "可附魔");
+        TAG_WORDS.put("enchatable", "可附魔");
+        TAG_WORDS.put("durability", "耐久");
+        TAG_WORDS.put("vanishing", "消失");
+        TAG_WORDS.put("trim", "纹饰");
+        TAG_WORDS.put("trims", "纹饰");
+        TAG_WORDS.put("banner", "旗帜");
+        TAG_WORDS.put("banners", "旗帜");
+        TAG_WORDS.put("sign", "告示牌");
+        TAG_WORDS.put("signs", "告示牌");
+        TAG_WORDS.put("boat", "船");
+        TAG_WORDS.put("boats", "船");
+        TAG_WORDS.put("rail", "铁轨");
+        TAG_WORDS.put("rails", "铁轨");
+        TAG_WORDS.put("torch", "火把");
+        TAG_WORDS.put("torches", "火把");
+        TAG_WORDS.put("candle", "蜡烛");
+        TAG_WORDS.put("candles", "蜡烛");
+        TAG_WORDS.put("book", "书");
+        TAG_WORDS.put("books", "书");
+        TAG_WORDS.put("music", "音乐");
+        TAG_WORDS.put("disc", "唱片");
+        TAG_WORDS.put("discs", "唱片");
+        TAG_WORDS.put("circuit", "电路");
+        TAG_WORDS.put("machine", "机器");
+        TAG_WORDS.put("machines", "机器");
+        TAG_WORDS.put("component", "元件");
+        TAG_WORDS.put("components", "元件");
+        TAG_WORDS.put("core", "核心");
+        TAG_WORDS.put("cores", "核心");
+        TAG_WORDS.put("energy", "能量");
+        TAG_WORDS.put("cable", "线缆");
+        TAG_WORDS.put("cables", "线缆");
+        TAG_WORDS.put("pipe", "管道");
+        TAG_WORDS.put("pipes", "管道");
+        TAG_WORDS.put("tank", "储罐");
+        TAG_WORDS.put("tanks", "储罐");
+        TAG_WORDS.put("fluid", "流体");
+        TAG_WORDS.put("fluids", "流体");
+        TAG_WORDS.put("gas", "气体");
+        TAG_WORDS.put("gases", "气体");
+        TAG_WORDS.put("chemical", "化学品");
+        TAG_WORDS.put("chemicals", "化学品");
+        TAG_WORDS.put("nuclear", "核");
+        TAG_WORDS.put("reactor", "反应堆");
+        TAG_WORDS.put("battery", "电池");
+        TAG_WORDS.put("batteries", "电池");
+        TAG_WORDS.put("chip", "芯片");
+        TAG_WORDS.put("chips", "芯片");
+        TAG_WORDS.put("processor", "处理器");
+        TAG_WORDS.put("processors", "处理器");
+        TAG_WORDS.put("wafer", "晶圆");
+        TAG_WORDS.put("wafers", "晶圆");
+        TAG_WORDS.put("silicon", "硅");
+        TAG_WORDS.put("dye_base", "染料基底");
+        TAG_WORDS.put("buckets", "桶");
+        TAG_WORDS.put("bucket", "桶");
+        TAG_WORDS.put("water", "水");
+        TAG_WORDS.put("lava", "岩浆");
+        TAG_WORDS.put("milk", "牛奶");
+        TAG_WORDS.put("leather", "皮革");
+        TAG_WORDS.put("string", "线");
+        TAG_WORDS.put("feather", "羽毛");
+        TAG_WORDS.put("paper", "纸");
+        TAG_WORDS.put("bone", "骨头");
+        TAG_WORDS.put("slime", "黏液");
+        TAG_WORDS.put("sword_blade", "剑刃");
+        TAG_WORDS.put("arrowheads", "箭头");
+        TAG_WORDS.put("tools_and_armor", "工具与盔甲");
+        TAG_WORDS.put("decorations", "装饰");
+        TAG_WORDS.put("building", "建筑");
+        TAG_WORDS.put("natural", "自然");
+        TAG_WORDS.put("plants", "植物");
+        TAG_WORDS.put("mobs", "生物");
+        TAG_WORDS.put("spawn", "生成");
+        TAG_WORDS.put("eggs_spawn", "生成蛋");
     }
     /**
      * ★ 猜你想搜（三档，越靠前越可信）：

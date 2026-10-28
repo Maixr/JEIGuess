@@ -37,6 +37,8 @@ public final class Suggestion {
     public final String badge;
     /** ★ true = 这行只有在鼠标悬停时才显示右侧小字（任务名很长，常显会挤） */
     public final boolean badgeOnHover;
+    /** ★ 行尾补充说明（黄绿色）：标签的中文翻译，例如 swords → 剑。空 = 不显示。 */
+    public String hint = "";
     /**
      * ★ 排序分（越大越靠前）。默认 0 = 不参与打分，保持插入顺序。
      * 只有紫色「搜过」这类"量多需要排序"的来源会填它。
@@ -59,6 +61,9 @@ public final class Suggestion {
         this.badge = badge == null ? "" : badge;
         this.badgeOnHover = badgeOnHover;
     }
+
+    /** 设置行尾中文说明（链式）。 */
+    public Suggestion hint(String h) { this.hint = h == null ? "" : h; return this; }
 
     public static Suggestion of(String text, Source source) { return new Suggestion(text, text, source); }
 }
