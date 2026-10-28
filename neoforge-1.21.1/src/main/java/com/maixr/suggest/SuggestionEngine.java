@@ -758,7 +758,10 @@ public final class SuggestionEngine {
         }
 
         // ⑥ ★ 纠错：「你是不是想搜…」
-        if (SuggestConfig.CORRECTION.get() && out.size() < 3) {   // 零结果或结果很少时才猜
+        // ★ 用**物品名命中数**判断，而不是 out.size()：
+        //   out 里还有[最近]、[标签]、[亚空间]等条目，会把数字撑到 3 以上，
+        //   导致「土豆」搜出「土豆加农炮 + 两个标签」后就永远不提示「马铃薯」。
+        if (SuggestConfig.CORRECTION.get() && matchedItems.size() < 3) {
             String fix = correction(input);
             if (fix != null) {
                 Suggestion s = new Suggestion(fix, toQuery(fix), Suggestion.Source.PLAIN, "你是不是想搜");
