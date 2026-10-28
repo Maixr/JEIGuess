@@ -278,6 +278,9 @@ public final class SuggestOverlay {
             } else {
                 g.drawString(font, name, textX, y + 2, textColor, false);
             }
+            if (hintW > 0) {
+                g.drawString(font, s.hint, textX + font.width(name) + 5, y + 2, 0xFFD4E157, false);
+            }
             if (badgeW > 0) {
                 g.drawString(font, s.badge, nameRight - font.width(s.badge), y + 2, HINT, false);
             }
