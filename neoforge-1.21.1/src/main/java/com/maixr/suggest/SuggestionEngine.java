@@ -844,12 +844,16 @@ public final class SuggestionEngine {
         try {
             int added = 0;
             List<String> names = matchedItems == null ? List.of() : matchedItems;
+            // ★ 只有「多件物品共同所属」才算分类；一件物品的标签不构成推荐。
+            //   搜「土豆」只匹配到「土豆加农炮」一件，就把它的 enchantable/* 当推荐了 —— 纯噪音。
+            if (names.size() < 2) return;
             Map<String, Integer> hits = new LinkedHashMap<>();
             Map<String, String> pathOf = new HashMap<>();
             for (String n : names) {
                 net.minecraft.world.item.Item it = ItemNameIndex.itemOf(n);
                 if (it == null) continue;
                 for (TagKey<Item> tag : TagIndex.tagsOf(new ItemStack(it))) {
+                    if (isJunkTag(tag)) continue;          // 附魔/技术标记不算分类
                     String id = "#" + tag.location();
                     hits.merge(id, 1, Integer::sum);
                     pathOf.putIfAbsent(id, tag.location().getPath());
@@ -859,6 +863,7 @@ public final class SuggestionEngine {
             ranked.sort(Comparator.comparingInt((Map.Entry<String, Integer> e) -> e.getValue()).reversed());
             for (Map.Entry<String, Integer> e : ranked) {
                 if (added >= limit) break;
+                if (e.getValue() < 2) continue;               // 至少两件物品共有才算一类
                 if (!seen.add("tagreg:" + e.getKey())) continue;
                 String id = e.getKey();
                 out.add(new Suggestion(tagDisplayName(id), id, Suggestion.Source.TAG, id));
@@ -880,6 +885,21 @@ public final class SuggestionEngine {
         } catch (Throwable ignored) {}
     }
 
+    /**
+     * ★ 技术性标签：几乎每个物品都有，属于内部标记而不是「分类」。
+     *
+     *   enchantable/durability  → 能附耐久类魔咒
+     *   enchantable/vanishing   → 能附消失诅咒
+     *
+     * 这类标签对「找同类物品」毫无帮助，只会把面板塞满噪音。
+     * （整合包里还有个拼错的 enchatable/*，一并挡掉。）
+     */
+    private static boolean isJunkTag(TagKey<Item> tag) {
+        if (tag == null) return true;
+        String p = tag.location().getPath().toLowerCase(Locale.ROOT);
+        return p.startsWith("enchantable/") || p.startsWith("enchatable/")
+                || p.contains("/vanishing") || p.contains("/durability");
+    }
     /**
      * ★ 猜你想搜（三档，越靠前越可信）：
      *   ① 别名表：土豆 → 马铃薯（俗称 / 错别字，人工整理，见 jeiguess_aliases.json）
