@@ -59,6 +59,32 @@ public final class PinyinBridge {
         return !prefixOnly && containsPinyin(text, query);
     }
 
+    private static final java.util.Map<Character, String[]> READINGS_CACHE = new java.util.HashMap<>();
+
+    /**
+     * ★ 单字的**全部读音**（带声调）。多音字必须看全部：
+     *   镐 → [hao4, gao3]（镐京 / 镐子），只取第一个会漏掉真正想要的读音。
+     * 拿不到返回 null。
+     */
+    public static String[] readingsOf(char c) {
+        if (c < 128) return new String[]{ String.valueOf(Character.toLowerCase(c)) };
+        resolve();
+        if (pinIn == null) return null;
+        String[] hit = READINGS_CACHE.get(c);
+        if (hit != null) return hit;
+        try {
+            Object ch = getChar.invoke(pinIn, c);
+            Object[] pys = (Object[]) pinyins.invoke(ch);
+            if (pys == null || pys.length == 0) return null;
+            String[] out = new String[pys.length];
+            for (int i = 0; i < pys.length; i++) out[i] = String.valueOf(pys[i]).toLowerCase();
+            READINGS_CACHE.put(c, out);
+            return out;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static final java.util.Map<Character, Character> INITIAL_CACHE = new java.util.HashMap<>();
 
     /**

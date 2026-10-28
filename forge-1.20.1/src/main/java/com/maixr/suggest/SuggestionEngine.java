@@ -1183,6 +1183,43 @@ public final class SuggestionEngine {
             }
             if (best != null) return best;
         }
+        // ④ 同音字替换：稿 → 镐。
+        //   「稿子」这种错字，游戏里并没有「镐子」，但有 86 件「…镐」。
+        //   做法：把错字换成**同音字**（多音字按全部读音比，镐 = hao4/gao3），
+        //   再看换完的词能搜到多少物品；搜不到东西的替换一律不用。
+        //   结果可能不是物品全名（而是「镐」这种能搜到 86 件的词），点击照样直接搜。
+        if (key.length() >= 2) {
+            java.util.LinkedHashSet<String> cands = new java.util.LinkedHashSet<>();
+            int replaced = 0;
+            for (int i = 0; i < key.length() && replaced < 12; i++) {
+                char c = key.charAt(i);
+                String[] rs = PinyinBridge.readingsOf(c);
+                if (rs == null) continue;
+                for (String r : rs) {
+                    for (char alt : ItemNameIndex.charsWithReading(r)) {
+                        if (alt == c || replaced >= 12) continue;
+                        String swapped = key.substring(0, i) + alt + key.substring(i + 1);
+                        if (ItemNameIndex.hasName(swapped)) return swapped;
+                        // 逐级缩短，但保留被替换的那个字（长度至少 i+1）
+                        for (int len = swapped.length(); len >= i + 1; len--) {
+                            cands.add(swapped.substring(0, len));
+                        }
+                        replaced++;
+                    }
+                }
+            }
+            if (!cands.isEmpty()) {
+                String best = null;
+                int bestHits = 2;                     // 至少要能搜到 3 件才算有用
+                for (java.util.Map.Entry<String, Integer> e : ItemNameIndex.countAll(cands, 9).entrySet()) {
+                    int h = e.getValue();
+                    if (h <= bestHits) continue;
+                    best = e.getKey();
+                    bestHits = h;
+                }
+                if (best != null) return best;
+            }
+        }
         return null;
     }
     /**

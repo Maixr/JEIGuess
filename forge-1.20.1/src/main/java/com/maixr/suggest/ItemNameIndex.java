@@ -26,6 +26,8 @@ public final class ItemNameIndex {
     private static final Map<String, net.minecraft.world.item.Item> BY_NAME = new HashMap<>();
     /** ★ 拼音首字母 → 物品名（谐音纠错用：hys → 黑曜石） */
     private static final Map<String, List<String>> BY_INITIALS = new HashMap<>();
+    /** ★ 读音 → 物品名里出现过的同音字（多音字按全部读音登记），回退用 */
+    private static final Map<String, List<Character>> CHARS_BY_PINYIN = new HashMap<>();
     private static volatile boolean built = false;
 
     /** 每 tick 处理多少个物品（2 万物品约 50 tick 建完，约 2.5 秒，且不卡帧） */
@@ -103,6 +105,16 @@ public final class ItemNameIndex {
             BY_NAME.putIfAbsent(n, item);
             String ini = PinyinBridge.initials(n);
             if (ini != null && !ini.isEmpty()) BY_INITIALS.computeIfAbsent(ini, k -> new ArrayList<>()).add(n);
+            for (int ci = 0; ci < n.length(); ci++) {
+                char cc = n.charAt(ci);
+                if (cc < 128) continue;
+                String[] rs = PinyinBridge.readingsOf(cc);
+                if (rs == null) continue;
+                for (String r : rs) {
+                    List<Character> list = CHARS_BY_PINYIN.computeIfAbsent(r, k -> new ArrayList<>());
+                    if (list.size() < 40 && !list.contains(cc)) list.add(cc);
+                }
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -162,6 +174,7 @@ public final class ItemNameIndex {
         BY_FIRST.clear();
         BY_NAME.clear();
         BY_INITIALS.clear();
+        CHARS_BY_PINYIN.clear();
         FILTER.clear();
         SAMPLES.clear();
         cursor = null;
@@ -189,6 +202,24 @@ public final class ItemNameIndex {
 
     /** 索引里是否有这个名字（别名/纠错的合法性校验）。 */
     public static boolean hasName(String n) { return n != null && BY_NAME.containsKey(n); }
+
+    /** 该读音下、物品名里出现过的同音字（同音替换纠错用）。 */
+    public static List<Character> charsWithReading(String py) {
+        return py == null ? List.of() : CHARS_BY_PINYIN.getOrDefault(py, List.of());
+    }
+
+    /** 一次算清多个词各能搜到多少物品（最多数到 limit），避免每个词都扫全表。 */
+    public static Map<String, Integer> countAll(java.util.Collection<String> terms, int limit) {
+        Map<String, Integer> m = new java.util.LinkedHashMap<>();
+        for (String t : terms) if (t != null && !t.isEmpty()) m.put(t, 0);
+        for (String n : ALL) {
+            for (Map.Entry<String, Integer> e : m.entrySet()) {
+                if (e.getValue() >= limit) continue;
+                if (n.contains(e.getKey())) e.setValue(e.getValue() + 1);
+            }
+        }
+        return m;
+    }
 
     /** 拼音首字母完全相同的物品名（谐音纠错用）。 */
     public static List<String> byInitials(String ini) {
