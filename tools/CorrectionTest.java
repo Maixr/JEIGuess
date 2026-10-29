@@ -1,5 +1,5 @@
 import me.towdium.pinin.PinIn;
-import me.towdium.pinin.elements.Pinyin;
+import me.towdium.pinin.elements.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -11,6 +11,7 @@ public class CorrectionTest {
     static Map<String, String> aliases = new HashMap<>();
     static Map<Character, Character> iniCache = new HashMap<>();
     static Map<Character, String[]> readingsCache = new HashMap<>();
+    static Map<Character, String[]> soundsCache = new HashMap<>();
     static Map<String, List<Character>> byReading = new HashMap<>();
     static Map<String, List<String>> byInitials = new HashMap<>();
 
@@ -37,6 +38,28 @@ public class CorrectionTest {
         return out;
     }
 
+    static String[] soundsOf(char c) {
+        if (c < 128) return new String[]{ "ascii|" + Character.toLowerCase(c) };
+        String[] hit = soundsCache.get(c);
+        if (hit != null) return hit;
+        Pinyin[] pys = pin.getChar(c).pinyins();
+        if (pys == null || pys.length == 0) return null;
+        String[] out = new String[pys.length];
+        for (int i = 0; i < pys.length; i++) {
+            Phoneme[] ph = pys[i].phonemes();
+            out[i] = (ph.length >= 2 ? ph[0].toString() + "|" + ph[1].toString() : String.valueOf(pys[i])).toLowerCase();
+        }
+        soundsCache.put(c, out);
+        return out;
+    }
+
+    static boolean soundsAlike(char a, char b) {
+        String[] sa = soundsOf(a), sb = soundsOf(b);
+        if (sa == null || sb == null) return false;
+        for (String x : sa) for (String y : sb) if (x.equals(y)) return true;
+        return false;
+    }
+
     static String initials(String text) {
         StringBuilder sb = new StringBuilder();
         for (char c : text.toCharArray()) {
@@ -61,7 +84,7 @@ public class CorrectionTest {
         }
     }
 
-    static boolean oneSubstitutionSameSound(String a, String b) {
+    static boolean sameSoundSub(String a, String b) {
         if (a.length() != b.length()) return false;
         int diff = -1;
         for (int i = 0; i < a.length(); i++) {
@@ -70,8 +93,7 @@ public class CorrectionTest {
             diff = i;
         }
         if (diff < 0) return false;
-        char ca = initialOf(a.charAt(diff)), cb = initialOf(b.charAt(diff));
-        return ca != 0 && ca == cb;
+        return soundsAlike(a.charAt(diff), b.charAt(diff));
     }
 
     static Map<String, Integer> countAll(Collection<String> terms, int limit) {
@@ -95,13 +117,17 @@ public class CorrectionTest {
         if (a != null && names.contains(a)) return a;
         for (String n : nameList) {
             if (n.length() != key.length()) continue;
-            if (oneSubstitutionSameSound(lower, n.toLowerCase(Locale.ROOT))) return n;
+            if (sameSoundSub(lower, n.toLowerCase(Locale.ROOT))) return n;
         }
         if (key.length() >= 3) {
             String ini = initials(key);
             if (ini != null) {
                 for (String n : byInitials.getOrDefault(ini, List.of())) {
-                    if (n.length() == key.length()) return n;
+                    if (n.length() != key.length()) continue;
+                    boolean any = false;
+                    for (int k = 0; k < key.length(); k++) if (soundsAlike(key.charAt(k), n.charAt(k))) { any = true; break; }
+                    if (!any) continue;
+                    return n;
                 }
             }
         }
@@ -147,14 +173,12 @@ public class CorrectionTest {
         for (String n : nameList) index(n);
         System.out.println("物品名 " + names.size() + " / 别名 " + aliases.size());
         String[][] cases = {
-            {"稿子","镐"},{"稿",null},   // 单字不纠错（歧义太大）
-            {"土豆","马铃薯"},{"洋芋","马铃薯"},{"砖石","钻石"},{"会议室","黑曜石"},
-            {"鹅卵石","圆石"},{"鹅软石","圆石"},{"棍子","木棍"},{"合成台","工作台"},
-            {"马玲薯","马铃薯"},{"黑耀石","黑曜石"},{"萤石","荧石"},{"粘土球","黏土球"},
-            {"红罗卜","胡萝卜"},{"翅膀","鞘翅"},{"复活图腾","不死图腾"},{"经验瓶","附魔之瓶"},
-            {"光束塔","信标"},{"红石","红石粉"},{"原木","橡木原木"},{"石英","下界石英"},{"木板","橡木木板"},
-            {"泥土",null},{"钻石",null},{"木棍",null},{"工作台",null},{"马铃薯",null},
-            {"石头",null},{"铁锭",null},{"苹果",null},{"玻璃",null},{"红石粉",null},
+            {"钻石稿","钻石镐"},{"稿子","镐"},
+            {"会议室","黑曜石"},{"砖石","钻石"},{"红石","红石粉"},
+            {"土豆","马铃薯"},{"鹅软石","圆石"},{"棍子","木棍"},{"合成台","工作台"},
+            {"翅膀","鞘翅"},{"光束塔","信标"},{"萤石","荧石"},{"粘土球","黏土球"},
+            {"钻石",null},{"钻石镐",null},{"泥土",null},{"石头",null},{"紫硕果","紫颂果"},
+            {"红石粉",null},{"苹果",null},{"玻璃",null},
         };
         int pass=0, fail=0;
         for (String[] c : cases) {
@@ -163,7 +187,7 @@ public class CorrectionTest {
             long us = (System.nanoTime()-t0)/1000;
             boolean ok = Objects.equals(got, c[1]);
             if (ok) pass++; else fail++;
-            System.out.printf("%s %-6s -> %-10s (期望 %-10s) %6d us%n", ok?"OK":"FAIL", c[0], String.valueOf(got), String.valueOf(c[1]), us);
+            System.out.printf("%s %-8s -> %-10s (期望 %-10s) %6d us%n", ok?"OK":"FAIL", c[0], String.valueOf(got), String.valueOf(c[1]), us);
         }
         System.out.println();
         System.out.println("通过 " + pass + " / 失败 " + fail);

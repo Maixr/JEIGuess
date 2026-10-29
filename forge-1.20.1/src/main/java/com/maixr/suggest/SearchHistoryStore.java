@@ -271,6 +271,22 @@ public final class SearchHistoryStore {
         return out;
     }
 
+    /**
+     * ★ 最近点开过的物品 id（按点击次数排序）。
+     *
+     * 推荐词用它反推「你最近在玩哪个 mod」—— 而不是读一张固定词表。
+     */
+    public synchronized List<String> recentPickIds(int limit) {
+        Map<String, Integer> agg = new LinkedHashMap<>();
+        for (Map<String, Integer> m : picks.values()) {
+            for (Map.Entry<String, Integer> e : m.entrySet()) agg.merge(e.getKey(), e.getValue(), Integer::sum);
+        }
+        List<Map.Entry<String, Integer>> l = new ArrayList<>(agg.entrySet());
+        l.sort(Comparator.comparingInt((Map.Entry<String, Integer> e) -> e.getValue()).reversed());
+        List<String> out = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : l) { if (out.size() >= limit) break; out.add(e.getKey()); }
+        return out;
+    }
     private void trim() {
         int max = 200;
         try { max = SuggestConfig.MAX_HISTORY.get(); } catch (Throwable ignored) {}

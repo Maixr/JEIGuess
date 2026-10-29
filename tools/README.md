@@ -26,7 +26,7 @@ java -Dfile.encoding=UTF-8 -cp "out;<jecharacters.jar>;<fastutil.jar>" Correctio
 测出来会全盘失败 —— 那是测试数据的问题，不是代码的问题。
 正确做法：mod 名 + 官方 `assets/minecraft/lang/zh_cn.json` 合并（约 1.56 万条）。
 
-当前状态：**33/33 通过**（15634 个物品名，单次查询 1–20 微秒；首次同音替换略慢）。
+当前状态：**21/21 通过**（15634 个物品名；含 钻石稿→钻石镐、紫硕果→紫颂果）。
 
 ## 四档纠错（v0.6.5）
 1. 别名表：土豆 → 马铃薯

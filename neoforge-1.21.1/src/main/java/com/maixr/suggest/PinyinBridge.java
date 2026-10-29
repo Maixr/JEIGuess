@@ -11,7 +11,7 @@ import java.lang.reflect.Method;
 public final class PinyinBridge {
     private static boolean resolved = false;
     private static Object pinIn;
-    private static Method begins, contains, getChar, pinyins;
+    private static Method begins, contains, getChar, pinyins, phonemesM;
 
     private PinyinBridge() {}
 
@@ -25,6 +25,7 @@ public final class PinyinBridge {
             contains = pinInCls.getMethod("contains", String.class, String.class);
             getChar = pinInCls.getMethod("getChar", char.class);
             pinyins = Class.forName("me.towdium.pinin.elements.Char").getMethod("pinyins");
+            phonemesM = Class.forName("me.towdium.pinin.elements.Pinyin").getMethod("phonemes");
             boolean ok = (Boolean) begins.invoke(pinIn, "钻石", "zs");
             MaixrSuggestMod.LOGGER.info("[猜你想搜] 拼音库已接入（JEC PinIn），自检={}", ok);
         } catch (Throwable t) {
@@ -60,6 +61,38 @@ public final class PinyinBridge {
     }
 
     private static final java.util.Map<Character, String[]> READINGS_CACHE = new java.util.HashMap<>();
+    private static final java.util.Map<Character, String[]> SOUNDS_CACHE = new java.util.HashMap<>();
+
+    /**
+     * ★ 单字的全部**读音**（声母+韵母，忽略声调）。
+     *
+     * 用来判断「打错字」：砖(zhuan) 与 钻(zuan) 声母韵母相同；
+     * 石(shi) 与 色(se) 韵母不同 —— 后者不该被当成同一个词。
+     * 只看首字母会把 石/色 也判成同音，误报太多。
+     * 拿不到返回 null。
+     */
+    public static String[] soundsOf(char c) {
+        if (c < 128) return new String[]{ "ascii|" + Character.toLowerCase(c) };
+        resolve();
+        if (pinIn == null || phonemesM == null) return null;
+        String[] hit = SOUNDS_CACHE.get(c);
+        if (hit != null) return hit;
+        try {
+            Object ch = getChar.invoke(pinIn, c);
+            Object[] pys = (Object[]) pinyins.invoke(ch);
+            if (pys == null || pys.length == 0) return null;
+            String[] out = new String[pys.length];
+            for (int i = 0; i < pys.length; i++) {
+                Object[] ph = (Object[]) phonemesM.invoke(pys[i]);
+                if (ph == null || ph.length < 2) { out[i] = String.valueOf(pys[i]).toLowerCase(); continue; }
+                out[i] = (String.valueOf(ph[0]) + "|" + String.valueOf(ph[1])).toLowerCase();
+            }
+            SOUNDS_CACHE.put(c, out);
+            return out;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     /**
      * ★ 单字的**全部读音**（带声调）。多音字必须看全部：

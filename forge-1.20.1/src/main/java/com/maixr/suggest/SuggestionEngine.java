@@ -609,13 +609,53 @@ public final class SuggestionEngine {
         return out;
     }
 
-    /** 推荐词池的全部词（不是随机抽一个）。 */
+    /** 推荐词池的全部词（整页浏览用）：同样跟着最近点击走。 */
     private static List<Suggestion> allRecommended() {
+        List<Suggestion> dyn = dynamicRecommendations(12);
+        return dyn.isEmpty() ? staticRecommendations(12) : dyn;
+    }
+
+    /**
+     * ★ 动态推荐：从「最近点开的物品」反推 mod，推荐 @modid。
+     *
+     * 旧实现直接读配置里的固定词表，于是整合包**没装的 mod**
+     * （@botania / @bloodmagic …）也会被推出来，点进去一片空白。
+     * 现在改成看行为：你最近在点哪个 mod 的物品，就推哪个 mod。
+     */
+    private static List<Suggestion> dynamicRecommendations(int count) {
+        List<Suggestion> out = new ArrayList<>();
+        if (count <= 0) return out;
+        try {
+            Map<String, Integer> hits = new LinkedHashMap<>();
+            for (String id : SearchHistoryStore.get().recentPickIds(40)) {
+                int c = id.indexOf(':');
+                if (c <= 0) continue;
+                String ns = id.substring(0, c);
+                if ("minecraft".equals(ns)) continue;          // 原版太宽泛，没有信息量
+                if (!ModList.get().isLoaded(ns)) continue;     // 已卸载的 mod 不推
+                hits.merge(ns, 1, Integer::sum);
+            }
+            for (Map.Entry<String, Integer> e : hits.entrySet()) {
+                if (out.size() >= count) break;
+                String q = "@" + e.getKey();
+                out.add(new Suggestion(q, q, Suggestion.Source.RANDOM, "你最近在看"));
+            }
+        } catch (Throwable ignored) {}
+        return out;
+    }
+
+    /** 固定词表兜底（没有任何点击历史时）：@xxx 只保留**真的装了**的 mod。 */
+    private static List<Suggestion> staticRecommendations(int count) {
         List<Suggestion> out = new ArrayList<>();
         try {
             for (String s : SuggestConfig.SUGGEST_WORDS.get()) {
+                if (out.size() >= count) break;
                 if (s == null || s.isBlank()) continue;
                 String w = s.trim();
+                if (w.startsWith("@")) {
+                    String id = w.substring(1);
+                    if (!ModList.get().isLoaded(id)) continue;
+                }
                 out.add(new Suggestion(w, toQuery(w), Suggestion.Source.RANDOM));
             }
         } catch (Throwable ignored) {}
@@ -1178,6 +1218,13 @@ public final class SuggestionEngine {
             int bestD = Integer.MAX_VALUE;
             for (String n : ItemNameIndex.byInitials(ini)) {
                 if (n.length() != key.length()) continue;
+                // ★ 光首字母相同远远不够：钻石稿 与 紫硕果 都是 zsg。
+                //   要求至少有一个位置读音相同（会议室/黑曜石 的 室/石 都读 shi）。
+                boolean any = false;
+                for (int k = 0; k < key.length(); k++) {
+                    if (soundsAlike(key.charAt(k), n.charAt(k))) { any = true; break; }
+                }
+                if (!any) continue;
                 int d = distance(lower, n.toLowerCase(Locale.ROOT));
                 if (d < bestD) { bestD = d; best = n; }
             }
@@ -1223,6 +1270,20 @@ public final class SuggestionEngine {
         return null;
     }
     /**
+     * ★ 两个字是否同音（声母+韵母相同，忽略声调；多音字任一读音命中即可）。
+     *
+     * 只看首字母太松：石(shi)/色(se) 首字母都是 s，会把「红石」错配成「红色」；
+     * 看完整拼音太严：砖(zhuan)/钻(zuan) 声母不同，反而是最常见的错字。
+     * 声母+韵母刚好：砖/钻 ✓，稿/镐 ✓，室/石 ✓，石/色 ✗。
+     */
+    private static boolean soundsAlike(char a, char b) {
+        String[] sa = PinyinBridge.soundsOf(a);
+        String[] sb = PinyinBridge.soundsOf(b);
+        if (sa == null || sb == null) return false;
+        for (String x : sa) for (String y : sb) if (x.equals(y)) return true;
+        return false;
+    }
+    /**
      * ★ 两个等长词是否"只差一个字、且这个字同音"。
      *
      * 这是中文打错字的典型形态（砖石/钻石、黑耀石/黑曜石、马玲薯/马铃薯）。
@@ -1238,9 +1299,7 @@ public final class SuggestionEngine {
             diff = i;
         }
         if (diff < 0) return false;                   // 完全相同不算纠错
-        char ca = PinyinBridge.initialOf(a.charAt(diff));
-        char cb = PinyinBridge.initialOf(b.charAt(diff));
-        return ca != 0 && ca == cb;
+        return soundsAlike(a.charAt(diff), b.charAt(diff));
     }
     /** Levenshtein 距离（词都很短，直接滚动数组）。 */
     private static int distance(String a, String b) {
@@ -1292,25 +1351,10 @@ public final class SuggestionEngine {
         return q;
     }
 
-    /** 推荐词池：自动把 mod 名转成 @modid。 */
+    /** 推荐词：跟着玩家最近点开的物品走；没有任何历史时才退回固定词表。 */
     private static List<Suggestion> pickRandom(int count) {
         if (count <= 0) return List.of();
-        long now = System.currentTimeMillis();
-        if (now - poolLoadedAt > 60_000L) {
-            poolLoadedAt = now;
-            try {
-                List<Suggestion> cfg = new ArrayList<>();
-                for (String s : SuggestConfig.SUGGEST_WORDS.get()) {
-                    if (s == null || s.isBlank()) continue;
-                    String w = s.trim();
-                    cfg.add(new Suggestion(w, toQuery(w), Suggestion.Source.RANDOM));
-                }
-                Collections.shuffle(cfg, RANDOM);
-                randomPool = cfg;
-            } catch (Throwable t) { randomPool = List.of(); }
-        }
-        List<Suggestion> out = new ArrayList<>();
-        for (Suggestion s : randomPool) { if (out.size() >= count) break; out.add(s); }
-        return out;
+        List<Suggestion> dyn = dynamicRecommendations(count);
+        return dyn.isEmpty() ? staticRecommendations(count) : dyn;
     }
 }
