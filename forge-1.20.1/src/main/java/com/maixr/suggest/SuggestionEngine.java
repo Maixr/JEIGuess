@@ -975,6 +975,15 @@ public final class SuggestionEngine {
         return sb.toString();
     }
 
+    /**
+     * ★ 近义字替换：玩家口语 → 游戏正式叫法。
+     *
+     * 铲(chǎn) / 锹(qiāo) 不同音，同音规则永远抓不到；官方叫「锹」（铁锹/钻石锹），
+     * 玩家习惯说「铲」。这里按字替换后照常校验物品名，所以「铁铲→铁锹」能命中，
+     * 而本身就带「铲」的真实物品（辛辛那金铲等）不会被改写。
+     */
+    private static final Map<Character, Character> CHAR_SUB = Map.of('铲', '锹');
+
     /** ★ 标签英文词 → 中文（够覆盖常见分类即可，缺的由 jeiguess_tag_display.json 补）。 */
     private static final Map<String, String> TAG_WORDS = new HashMap<>();
     static {
@@ -1200,6 +1209,29 @@ public final class SuggestionEngine {
         // ① 别名表（俗称 / 错字）
         String alias = AliasIndex.lookup(key);
         if (alias != null) return alias;
+
+        // ①b 近义字替换：铲 → 锹。
+        //    这是**明确规则**，必须排在所有「猜」之前 —— 否则会被更弱的规则抢先：
+        //    钻石铲 曾被首字母档配成「钻石锄」，铲子 曾被同音档配成「产」。
+        for (int i = 0; i < key.length(); i++) {
+            Character alt = CHAR_SUB.get(key.charAt(i));
+            if (alt == null) continue;
+            String swapped = key.substring(0, i) + alt + key.substring(i + 1);
+            if (ItemNameIndex.hasName(swapped)) return swapped;
+            // 去掉口语后缀再试：锹子 → 锹
+            List<String> cc = new ArrayList<>();
+            for (int len = swapped.length() - 1; len >= 1; len--) cc.add(swapped.substring(0, len));
+            cc.add(String.valueOf(alt));
+            String best = null;
+            int bestHits = 2;
+            for (Map.Entry<String, Integer> e : ItemNameIndex.countAll(cc, 9).entrySet()) {
+                int h = e.getValue();
+                if (h <= bestHits) continue;
+                best = e.getKey();
+                bestHits = h;
+            }
+            if (best != null) return best;
+        }
 
         // ② 只差一个字，且这个字**同音**（砖/钻 都是 z）。
         //   只靠编辑距离会把 2 字词配得满世界都是：红石→红色、石英→石磨、原木→橡木。

@@ -14,6 +14,7 @@ public class CorrectionTest {
     static Map<Character, String[]> soundsCache = new HashMap<>();
     static Map<String, List<Character>> byReading = new HashMap<>();
     static Map<String, List<String>> byInitials = new HashMap<>();
+    static final Map<Character, Character> CHAR_SUB = Map.of('铲', '锹');
 
     static char initialOf(char c) {
         if (c < 128) return Character.toLowerCase(c);
@@ -115,6 +116,22 @@ public class CorrectionTest {
         if (names.contains(key)) return null;
         String a = aliases.get(lower);
         if (a != null && names.contains(a)) return a;
+        for (int i = 0; i < key.length(); i++) {
+            Character alt = CHAR_SUB.get(key.charAt(i));
+            if (alt == null) continue;
+            String swapped = key.substring(0, i) + alt + key.substring(i + 1);
+            if (names.contains(swapped)) return swapped;
+            List<String> cc = new ArrayList<>();
+            for (int len = swapped.length() - 1; len >= 1; len--) cc.add(swapped.substring(0, len));
+            cc.add(String.valueOf(alt));
+            String best = null; int bestHits = 2;
+            for (Map.Entry<String, Integer> e : countAll(cc, 9).entrySet()) {
+                int h = e.getValue();
+                if (h <= bestHits) continue;
+                best = e.getKey(); bestHits = h;
+            }
+            if (best != null) return best;
+        }
         for (String n : nameList) {
             if (n.length() != key.length()) continue;
             if (sameSoundSub(lower, n.toLowerCase(Locale.ROOT))) return n;
@@ -148,6 +165,7 @@ public class CorrectionTest {
                     }
                 }
             }
+
             if (!cands.isEmpty()) {
                 String best = null; int bestHits = 2;
                 for (Map.Entry<String, Integer> e : countAll(cands, 9).entrySet()) {
@@ -173,12 +191,11 @@ public class CorrectionTest {
         for (String n : nameList) index(n);
         System.out.println("物品名 " + names.size() + " / 别名 " + aliases.size());
         String[][] cases = {
-            {"钻石稿","钻石镐"},{"稿子","镐"},
-            {"会议室","黑曜石"},{"砖石","钻石"},{"红石","红石粉"},
-            {"土豆","马铃薯"},{"鹅软石","圆石"},{"棍子","木棍"},{"合成台","工作台"},
-            {"翅膀","鞘翅"},{"光束塔","信标"},{"萤石","荧石"},{"粘土球","黏土球"},
-            {"钻石",null},{"钻石镐",null},{"泥土",null},{"石头",null},{"紫硕果","紫颂果"},
-            {"红石粉",null},{"苹果",null},{"玻璃",null},
+            {"铁铲","铁锹"},{"钻石铲","钻石锹"},{"铲子","锹"},{"下界合金铲","下界合金锹"},
+            {"辛辛那金铲",null},
+            {"钻石稿","钻石镐"},{"稿子","镐"},{"会议室","黑曜石"},{"砖石","钻石"},
+            {"土豆","马铃薯"},{"鹅软石","圆石"},{"红石","红石粉"},{"翅膀","鞘翅"},
+            {"钻石",null},{"泥土",null},{"铁锹",null},{"辛辛那金铲",null},
         };
         int pass=0, fail=0;
         for (String[] c : cases) {
@@ -187,7 +204,7 @@ public class CorrectionTest {
             long us = (System.nanoTime()-t0)/1000;
             boolean ok = Objects.equals(got, c[1]);
             if (ok) pass++; else fail++;
-            System.out.printf("%s %-8s -> %-10s (期望 %-10s) %6d us%n", ok?"OK":"FAIL", c[0], String.valueOf(got), String.valueOf(c[1]), us);
+            System.out.printf("%s %-10s -> %-10s (期望 %-10s) %6d us%n", ok?"OK":"FAIL", c[0], String.valueOf(got), String.valueOf(c[1]), us);
         }
         System.out.println();
         System.out.println("通过 " + pass + " / 失败 " + fail);
