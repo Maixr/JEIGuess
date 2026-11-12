@@ -203,6 +203,16 @@ public final class ItemNameIndex {
     /** 索引里是否有这个名字（别名/纠错的合法性校验）。 */
     public static boolean hasName(String n) { return n != null && BY_NAME.containsKey(n); }
 
+    /** 拼音能匹配到多少物品名（最多数到 limit），拼音纠正的合法性校验。 */
+    public static int countPinyin(String term, int limit) {
+        if (term == null || term.isEmpty() || limit <= 0) return 0;
+        int c = 0;
+        for (String n : ALL) {
+            if (PinyinBridge.matches(n, term, false) && ++c >= limit) return c;
+        }
+        return c;
+    }
+
     /** 该读音下、物品名里出现过的同音字（同音替换纠错用）。 */
     public static List<Character> charsWithReading(String py) {
         return py == null ? List.of() : CHARS_BY_PINYIN.getOrDefault(py, List.of());

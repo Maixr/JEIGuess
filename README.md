@@ -89,3 +89,8 @@ cd forge-1.20.1
 ## 许可
 
 [MIT](LICENSE) © 2026 Maixr
+
+## 外挂词库
+
+想让「鞋子→靴子」「钻石高→钻石镐」「luse→lvse」这类纠错生效，见 [docs/外挂词库指南.md](docs/外挂词库指南.md)。
+三个 JSON 放在 `config/`，改完输入 `/jeiguess reload`。

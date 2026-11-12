@@ -24,6 +24,16 @@ public final class MaixrSuggestMod {
         if (FMLEnvironment.dist.isClient()) {
             SearchHistoryStore.migrateLegacyFiles();          // 旧 mod 名的配置/历史搬过来
             container.registerConfig(ModConfig.Type.CLIENT, SuggestConfig.SPEC);
+            // ★ 模组菜单里的「配置」按钮（反射调用，保证专用服务端不加载客户端类）
+            try {
+                Class.forName("com.maixr.suggest.ClientConfigScreen")
+                        .getMethod("register", ModContainer.class)
+                        .invoke(null, container);
+            } catch (Throwable t) {
+                LOGGER.warn("[猜你想搜] 注册配置界面失败: {}", t.toString());
+            }
+            // ★ 启动时就加载词库：缺失的示例文件会在 config 目录里立刻生成
+            try { CorrectionRules.reload(); } catch (Throwable t) { LOGGER.warn("[猜你想搜] 词库初始化失败: {}", t.toString()); }
         }
         // ★ 服务端配置：只为"全服热词"存在，客户端不读它
         container.registerConfig(ModConfig.Type.SERVER, HotWordsConfig.SPEC);

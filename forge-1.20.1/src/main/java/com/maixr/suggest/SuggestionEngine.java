@@ -801,21 +801,21 @@ public final class SuggestionEngine {
         // ★ 用**物品名命中数**判断，而不是 out.size()：
         //   out 里还有[最近]、[标签]、[亚空间]等条目，会把数字撑到 3 以上，
         //   导致「土豆」搜出「土豆加农炮 + 两个标签」后就永远不提示「马铃薯」。
-        // ★ 强制规则优先：命中就无条件提示，不受「结果少于 3 条」的限制
-        String forced = SuggestConfig.CORRECTION.get() ? forceCorrection(input) : null;
-        if (forced != null) {
-            List<Suggestion> withFix = new ArrayList<>();
-            withFix.add(new Suggestion(forced, toQuery(forced), Suggestion.Source.PLAIN, "你是不是想搜"));
-            withFix.addAll(out);
-            out = withFix;
-        } else if (SuggestConfig.CORRECTION.get() && matchedItems.size() < 3) {
-            String fix = correction(input);
-            if (fix != null) {
-                Suggestion s = new Suggestion(fix, toQuery(fix), Suggestion.Source.PLAIN, "你是不是想搜");
-                List<Suggestion> withFix = new ArrayList<>();
-                withFix.add(s);
-                withFix.addAll(out);
-                out = withFix;
+        // ★ 词库里的「强制」规则无视结果数量；其余纠错只在结果少于 3 条时出现。
+        if (SuggestConfig.CORRECTION.get()) {
+            boolean forced = CorrectionRules.isForced(input.trim());
+            if (forced || matchedItems.size() < 3) {
+                List<String> fixes = correctAll(input);
+                if (!fixes.isEmpty()) {
+                    List<Suggestion> withFix = new ArrayList<>();
+                    for (String f : fixes) {
+                        if (seen.add("fix:" + f)) {
+                            withFix.add(new Suggestion(f, toQuery(f), Suggestion.Source.PLAIN, "你是不是想搜"));
+                        }
+                    }
+                    withFix.addAll(out);
+                    out = withFix;
+                }
             }
         }
 
@@ -1197,141 +1197,92 @@ public final class SuggestionEngine {
         TAG_WORDS.put("eggs_spawn", "生成蛋");
     }
     /**
-     * ★ 强制纠正：**无论当前搜到多少条都提示**的整词规则。
+     * ★ 猜你想搜：先查词库（明确规则），再靠启发式去猜。
      *
-     *   岩浆 → 熔岩：官方叫熔岩（熔岩桶），玩家常说岩浆。
-     *   萤石 → 荧石：官方是荧石（glowstone），玩家常写成萤石。
+     *   词库：整体纠正 → 部分纠正 → 拼音纠正
+     *   猜测：同音单字 → 首字母 → 同音字替换
      *
-     * 必须是**整词**匹配：岩浆块 / 岩浆膏 是官方物品名，
-     * 若按子串替换会把「岩浆块」改成不存在的「熔岩块」。
+     * 返回 0~3 条候选：整体纠正出现冲突时两条都返回（面板显示两行）。
      */
-    private static final Map<String, String> FORCE_WHOLE = Map.of(
-            "岩浆", "熔岩",
-            "萤石", "荧石");
-
-    /** 命中强制规则就返回替换词，否则 null。目标必须真能搜到东西。 */
-    private static String forceCorrection(String input) {
-        if (input == null) return null;
-        String key = input.trim().toLowerCase(Locale.ROOT);
-        if (key.isEmpty() || key.length() > 16) return null;
-        String to = FORCE_WHOLE.get(key);
-        if (to == null) return null;
-        if (ItemNameIndex.hasName(key)) return null;          // 输入本身就是物品名，不打扰
-        Integer hit = ItemNameIndex.countAll(java.util.List.of(to), 1).get(to);
-        return (hit != null && hit > 0) ? to : null;
-    }
-
-    /**
-     * ★ 猜你想搜（三档，越靠前越可信）：
-     *   ① 别名表：土豆 → 马铃薯（俗称 / 错别字，人工整理，见 jeiguess_aliases.json）
-     *   ② 编辑距离 ≤ 1 且字数相同：砖石 → 钻石
-     *   ③ 拼音首字母相同且字数相同：会议室 → 黑曜石
-     *
-     * 只返回**真实存在于物品名索引**的名字；任何一档拿不准就返回 null。
-     * 宁可没有提示，也不给错的提示。
-     */
-    private static String correction(String input) {
+    private static List<String> correctAll(String input) {
         String key = input.trim();
-        if (key.length() < 2 || key.length() > 16) return null;
+        if (key.length() < 2 || key.length() > 16) return List.of();
         String lower = key.toLowerCase(Locale.ROOT);
-        if (ItemNameIndex.hasName(key)) return null;              // 本身就是物品名，不要瞎猜
-        if (modAliases().containsKey(lower)) return null;
-        if (tagQueryOf(key) != null) return null;
+        if (ItemNameIndex.hasName(key)) return List.of();          // 本身就是物品名
+        if (modAliases().containsKey(lower)) return List.of();
+        if (tagQueryOf(key) != null) return List.of();
 
-        // ① 别名表（俗称 / 错字）
-        String alias = AliasIndex.lookup(key);
-        if (alias != null) return alias;
+        // ① 整体纠正（内置 + 外挂；同一条冲突时两条都给）
+        List<String> whole = CorrectionRules.wholeCandidates(key);
+        if (!whole.isEmpty()) return whole;
 
-        // ①b 近义字替换：铲 → 锹。
-        //    这是**明确规则**，必须排在所有「猜」之前 —— 否则会被更弱的规则抢先：
-        //    钻石铲 曾被首字母档配成「钻石锄」，铲子 曾被同音档配成「产」。
-        for (int i = 0; i < key.length(); i++) {
-            Character alt = CHAR_SUB.get(key.charAt(i));
-            if (alt == null) continue;
-            String swapped = key.substring(0, i) + alt + key.substring(i + 1);
-            if (ItemNameIndex.hasName(swapped)) return swapped;
-            // 去掉口语后缀再试：锹子 → 锹
-            List<String> cc = new ArrayList<>();
-            for (int len = swapped.length() - 1; len >= 1; len--) cc.add(swapped.substring(0, len));
-            cc.add(String.valueOf(alt));
-            String best = null;
-            int bestHits = 2;
-            for (Map.Entry<String, Integer> e : ItemNameIndex.countAll(cc, 9).entrySet()) {
-                int h = e.getValue();
-                if (h <= bestHits) continue;
-                best = e.getKey();
-                bestHits = h;
-            }
-            if (best != null) return best;
-        }
+        // ② 部分纠正（铲 → 锹、钻石高 → 钻石镐）
+        String part = CorrectionRules.partApply(key);
+        if (part != null) return List.of(part);
 
-        // ② 只差一个字，且这个字**同音**（砖/钻 都是 z）。
-        //   只靠编辑距离会把 2 字词配得满世界都是：红石→红色、石英→石磨、原木→橡木。
+        // ③ 拼音纠正（luse → lvse）
+        String py = CorrectionRules.pinyinApply(key);
+        if (py != null) return List.of(py);
+
+        // ④ 只差一个字且同音（砖石 → 钻石）
         for (String n : ItemNameIndex.allNames()) {
             if (n.length() != key.length()) continue;
-            if (oneSubstitutionSameSound(lower, n.toLowerCase(Locale.ROOT))) return n;
+            if (oneSubstitutionSameSound(lower, n.toLowerCase(Locale.ROOT))) return List.of(n);
         }
 
-        // ③ 拼音首字母全等（谐音错字：会议室 → 黑曜石）。
-        //   只对 3 字及以上生效：2 字词的首字母组合太少（hs/sy/ym），
-        //   几乎必然撞上一堆无关物品（红石→红色、石英→酸液），误报率高得没法用。
-        if (key.length() < 3) return null;
-        String ini = PinyinBridge.initials(key);
-        if (ini != null && !ini.isEmpty()) {
-            String best = null;
-            int bestD = Integer.MAX_VALUE;
-            for (String n : ItemNameIndex.byInitials(ini)) {
-                if (n.length() != key.length()) continue;
-                // ★ 光首字母相同远远不够：钻石稿 与 紫硕果 都是 zsg。
-                //   要求至少有一个位置读音相同（会议室/黑曜石 的 室/石 都读 shi）。
-                boolean any = false;
-                for (int k = 0; k < key.length(); k++) {
-                    if (soundsAlike(key.charAt(k), n.charAt(k))) { any = true; break; }
-                }
-                if (!any) continue;
-                int d = distance(lower, n.toLowerCase(Locale.ROOT));
-                if (d < bestD) { bestD = d; best = n; }
-            }
-            if (best != null) return best;
-        }
-        // ④ 同音字替换：稿 → 镐。
-        //   「稿子」这种错字，游戏里并没有「镐子」，但有 86 件「…镐」。
-        //   做法：把错字换成**同音字**（多音字按全部读音比，镐 = hao4/gao3），
-        //   再看换完的词能搜到多少物品；搜不到东西的替换一律不用。
-        //   结果可能不是物品全名（而是「镐」这种能搜到 86 件的词），点击照样直接搜。
-        if (key.length() >= 2) {
-            java.util.LinkedHashSet<String> cands = new java.util.LinkedHashSet<>();
-            int replaced = 0;
-            for (int i = 0; i < key.length() && replaced < 12; i++) {
-                char c = key.charAt(i);
-                String[] rs = PinyinBridge.readingsOf(c);
-                if (rs == null) continue;
-                for (String r : rs) {
-                    for (char alt : ItemNameIndex.charsWithReading(r)) {
-                        if (alt == c || replaced >= 12) continue;
-                        String swapped = key.substring(0, i) + alt + key.substring(i + 1);
-                        if (ItemNameIndex.hasName(swapped)) return swapped;
-                        // 逐级缩短，但保留被替换的那个字（长度至少 i+1）
-                        for (int len = swapped.length(); len >= i + 1; len--) {
-                            cands.add(swapped.substring(0, len));
-                        }
-                        replaced++;
-                    }
-                }
-            }
-            if (!cands.isEmpty()) {
+        // ⑤ 首字母全等（会议室 → 黑曜石），3 字以上才试
+        if (key.length() >= 3) {
+            String ini = PinyinBridge.initials(key);
+            if (ini != null && !ini.isEmpty()) {
                 String best = null;
-                int bestHits = 2;                     // 至少要能搜到 3 件才算有用
-                for (java.util.Map.Entry<String, Integer> e : ItemNameIndex.countAll(cands, 9).entrySet()) {
-                    int h = e.getValue();
-                    if (h <= bestHits) continue;
-                    best = e.getKey();
-                    bestHits = h;
+                int bestD = Integer.MAX_VALUE;
+                for (String n : ItemNameIndex.byInitials(ini)) {
+                    if (n.length() != key.length()) continue;
+                    boolean any = false;
+                    for (int k = 0; k < key.length(); k++) {
+                        if (soundsAlike(key.charAt(k), n.charAt(k))) { any = true; break; }
+                    }
+                    if (!any) continue;
+                    int d = distance(lower, n.toLowerCase(Locale.ROOT));
+                    if (d < bestD) { bestD = d; best = n; }
                 }
-                if (best != null) return best;
+                if (best != null) return List.of(best);
             }
         }
-        return null;
+
+        // ⑥ 同音字替换（稿子 → 镐）
+        String homo = homophoneTier(key);
+        return homo == null ? List.of() : List.of(homo);
+    }
+
+    /** 同音字替换：把错字换成物品名里出现过的同音字，取能搜到最多物品的那个词。 */
+    private static String homophoneTier(String key) {
+        java.util.LinkedHashSet<String> cands = new java.util.LinkedHashSet<>();
+        int replaced = 0;
+        for (int i = 0; i < key.length() && replaced < 12; i++) {
+            char c = key.charAt(i);
+            String[] rs = PinyinBridge.readingsOf(c);
+            if (rs == null) continue;
+            for (String r : rs) {
+                for (char alt : ItemNameIndex.charsWithReading(r)) {
+                    if (alt == c || replaced >= 12) continue;
+                    String swapped = key.substring(0, i) + alt + key.substring(i + 1);
+                    if (ItemNameIndex.hasName(swapped)) return swapped;
+                    for (int len = swapped.length(); len >= i + 1; len--) cands.add(swapped.substring(0, len));
+                    replaced++;
+                }
+            }
+        }
+        if (cands.isEmpty()) return null;
+        String best = null;
+        int bestHits = 2;
+        for (Map.Entry<String, Integer> e : ItemNameIndex.countAll(cands, 9).entrySet()) {
+            int h = e.getValue();
+            if (h <= bestHits) continue;
+            best = e.getKey();
+            bestHits = h;
+        }
+        return best;
     }
     /**
      * ★ 两个字是否同音（声母+韵母相同，忽略声调；多音字任一读音命中即可）。

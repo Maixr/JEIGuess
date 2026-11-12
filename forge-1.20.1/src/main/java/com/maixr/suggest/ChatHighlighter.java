@@ -233,6 +233,12 @@ public final class ChatHighlighter {
                             : "\u00a7a无痕模式已关闭\u00a77 —— 恢复记录");
                     return 1;
                 }))
+                // ★ 重载外挂词库（改完 config 里的三个 json 不用重启）
+                .then(Commands.literal("reload").executes(ctx -> {
+                    CorrectionRules.reload();
+                    msg("\u00a7a词库已重载：\u00a7f" + CorrectionRules.summary());
+                    return 1;
+                }))
                 // ★ 按需把亚空间物品注入 JEI（平时不注入，避免拖慢 JEI）
                 .then(Commands.literal("inject")
                         .then(Commands.argument("id", StringArgumentType.string()).executes(ctx -> {

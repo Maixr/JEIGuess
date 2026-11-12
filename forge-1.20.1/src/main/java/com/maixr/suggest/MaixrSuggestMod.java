@@ -25,6 +25,9 @@ public final class MaixrSuggestMod {
         if (FMLEnvironment.dist.isClient()) {
             SearchHistoryStore.migrateLegacyFiles();          // 旧 mod 名的配置/历史搬过来
             context.registerConfig(ModConfig.Type.CLIENT, SuggestConfig.SPEC);
+
+            // ★ 启动时就加载词库：缺失的示例文件会在 config 目录里立刻生成
+            try { CorrectionRules.reload(); } catch (Throwable t) { LOGGER.warn("[猜你想搜] 词库初始化失败: {}", t.toString()); }
         }
         // ★ 服务端配置：只为"全服热词"存在，客户端不读它
         context.registerConfig(ModConfig.Type.SERVER, HotWordsConfig.SPEC);
