@@ -801,7 +801,14 @@ public final class SuggestionEngine {
         // ★ 用**物品名命中数**判断，而不是 out.size()：
         //   out 里还有[最近]、[标签]、[亚空间]等条目，会把数字撑到 3 以上，
         //   导致「土豆」搜出「土豆加农炮 + 两个标签」后就永远不提示「马铃薯」。
-        if (SuggestConfig.CORRECTION.get() && matchedItems.size() < 3) {
+        // ★ 强制规则优先：命中就无条件提示，不受「结果少于 3 条」的限制
+        String forced = SuggestConfig.CORRECTION.get() ? forceCorrection(input) : null;
+        if (forced != null) {
+            List<Suggestion> withFix = new ArrayList<>();
+            withFix.add(new Suggestion(forced, toQuery(forced), Suggestion.Source.PLAIN, "你是不是想搜"));
+            withFix.addAll(out);
+            out = withFix;
+        } else if (SuggestConfig.CORRECTION.get() && matchedItems.size() < 3) {
             String fix = correction(input);
             if (fix != null) {
                 Suggestion s = new Suggestion(fix, toQuery(fix), Suggestion.Source.PLAIN, "你是不是想搜");
@@ -1189,6 +1196,31 @@ public final class SuggestionEngine {
         TAG_WORDS.put("spawn", "生成");
         TAG_WORDS.put("eggs_spawn", "生成蛋");
     }
+    /**
+     * ★ 强制纠正：**无论当前搜到多少条都提示**的整词规则。
+     *
+     *   岩浆 → 熔岩：官方叫熔岩（熔岩桶），玩家常说岩浆。
+     *   萤石 → 荧石：官方是荧石（glowstone），玩家常写成萤石。
+     *
+     * 必须是**整词**匹配：岩浆块 / 岩浆膏 是官方物品名，
+     * 若按子串替换会把「岩浆块」改成不存在的「熔岩块」。
+     */
+    private static final Map<String, String> FORCE_WHOLE = Map.of(
+            "岩浆", "熔岩",
+            "萤石", "荧石");
+
+    /** 命中强制规则就返回替换词，否则 null。目标必须真能搜到东西。 */
+    private static String forceCorrection(String input) {
+        if (input == null) return null;
+        String key = input.trim().toLowerCase(Locale.ROOT);
+        if (key.isEmpty() || key.length() > 16) return null;
+        String to = FORCE_WHOLE.get(key);
+        if (to == null) return null;
+        if (ItemNameIndex.hasName(key)) return null;          // 输入本身就是物品名，不打扰
+        Integer hit = ItemNameIndex.countAll(java.util.List.of(to), 1).get(to);
+        return (hit != null && hit > 0) ? to : null;
+    }
+
     /**
      * ★ 猜你想搜（三档，越靠前越可信）：
      *   ① 别名表：土豆 → 马铃薯（俗称 / 错别字，人工整理，见 jeiguess_aliases.json）
